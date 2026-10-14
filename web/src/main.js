@@ -1,7 +1,7 @@
 import './style.css';
 import { initUpdates, maybeApply } from './update.js';
 import { startQueue, onQueueChange, flush } from './queue.js';
-import { toast } from './ui.js';
+import { toast, avatarHtml } from './ui.js';
 import { getMe } from './api.js';
 import { navigate } from './nav.js';
 import mapView from './views/map.js';
@@ -40,6 +40,12 @@ async function render() {
     a.classList.toggle('active', href === '/' ? path === '/' : path.startsWith(href));
   });
   document.body.classList.toggle('full', path === '/');
+  const me = await getMe();
+  if (me && !me.screen_name && !['/me', '/about'].includes(path)) {
+    sessionStorage.setItem('pofov:next', location.pathname + location.search);
+    history.replaceState(null, '', '/me?welcome=1');
+    return render();
+  }
   main.innerHTML = '';
   window.scrollTo(0, 0);
   if (!view) {
@@ -74,5 +80,12 @@ window.addEventListener('online', async () => {
   if (sent.length) toast(`Uploaded ${sent.length} saved item${sent.length > 1 ? 's' : ''}`);
 });
 document.getElementById('app-version').textContent = __APP_VERSION__;
-getMe();
+async function showMeTab(e) {
+  const me = await getMe(Boolean(e));
+  const tab = document.querySelector('nav.tabs a[href="/me"]');
+  tab.innerHTML = me ? `${avatarHtml(me, 26)}${me.screen_name ? '' : 'Me'}` : '<span>👤</span>Sign in';
+  if (me?.screen_name) tab.insertAdjacentText('beforeend', [...me.screen_name].slice(0, 12).join(''));
+}
+document.addEventListener('pofov:me', showMeTab);
+showMeTab();
 render();

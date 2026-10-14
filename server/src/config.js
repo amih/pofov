@@ -12,6 +12,10 @@ export const config = {
   adminEmails: (env.ADMIN_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
   minClientBuild: Number(env.MIN_CLIENT_BUILD || 0),
   trustThreshold: Number(env.TRUST_THRESHOLD || 5),
+  google: {
+    clientId: env.GOOGLE_CLIENT_ID || '',
+    clientSecret: env.GOOGLE_CLIENT_SECRET || '',
+  },
   smtp: {
     host: env.SMTP_HOST || '',
     port: Number(env.SMTP_PORT || 587),

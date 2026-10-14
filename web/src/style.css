@@ -142,3 +142,18 @@ input:not([type=checkbox]), textarea { width: 100%; font: inherit; padding: 11px
 
 .toast { position: fixed; left: 50%; bottom: calc(var(--tabs-h) + 16px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px); opacity: 0; transition: .3s; z-index: 2000; background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 10px; max-width: calc(100% - 32px); box-shadow: 0 4px 16px rgb(0 0 0 / .3); }
 .toast.show { transform: translate(-50%, 0); opacity: 1; }
+
+/* Avatars & profile */
+.avatar { border-radius: 50%; object-fit: cover; flex: none; vertical-align: middle; display: inline-block; }
+.avatar.letter { display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; }
+nav.tabs a .avatar { margin-bottom: 2px; }
+.profile-head { display: flex; gap: 14px; align-items: center; margin: 8px 0 16px; }
+.profile-head h1 { margin: 0; }
+.profile-head p { margin: 0; }
+.avatar-row { gap: 12px; }
+.leaders .who { display: inline-flex; align-items: center; gap: 8px; }
+.activity .avatar { margin-right: 4px; }
+.field-error { color: var(--red); margin: -6px 0 0; font-size: .9rem; }
+.btn.google { background: #fff; color: #1f1f1f; border-color: #c7c7c7; gap: 10px; }
+.or { display: flex; align-items: center; gap: 10px; color: var(--muted); margin: 18px 0; }
+.or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }

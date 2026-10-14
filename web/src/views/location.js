@@ -1,5 +1,5 @@
 import { api, getMe } from '../api.js';
-import { esc, getPosition, timeAgo, toast } from '../ui.js';
+import { esc, getPosition, timeAgo, toast, avatarHtml } from '../ui.js';
 
 const KIND_TEXT = { seen: 'saw', taken: 'took', gone: 'found missing' };
 
@@ -46,7 +46,7 @@ export default async function locationView(root, [code]) {
     </ul>
 
     ${activity.length ? `<h2>Recent activity</h2><ul class="activity">${activity.map((a) =>
-      `<li>${esc(a.who)} ${KIND_TEXT[a.kind]} <em>${esc(a.title)}</em> · ${timeAgo(a.created_at)}</li>`).join('')}</ul>` : ''}
+      `<li>${avatarHtml({ avatar: a.avatar, name: a.who }, 22)} ${esc(a.who)} ${KIND_TEXT[a.kind]} <em>${esc(a.title)}</em> · ${timeAgo(a.created_at)}</li>`).join('')}</ul>` : ''}
 
     <p class="muted small">
       <a href="/api/locations/${l.code}/sign" target="_blank">🖨️ Print an A5 sign with a QR code for this library</a>

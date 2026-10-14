@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { esc } from '../ui.js';
+import { esc, avatarHtml } from '../ui.js';
 
 export default async function topView(root) {
   root.innerHTML = '<section class="page"><h1>Top contributors</h1><div class="seg"><button data-d="7">Week</button><button data-d="30" class="on">Month</button><button data-d="3650">All time</button></div><div id="stats" class="stats"></div><ol class="leaders" id="list"></ol><p class="muted small">Points: new library 10 · book on a shelf 2 · book taken or missing 1 · checking a library 1 · reviewing 1.</p></section>';
@@ -7,7 +7,7 @@ export default async function topView(root) {
   async function load(days) {
     try {
       const { leaders } = await api(`/api/leaderboard?days=${days}`);
-      list.innerHTML = leaders.length ? leaders.map((l) => `<li><span>${esc(l.name)}</span><strong>${l.points}</strong></li>`).join('') : '<p class="muted">No points yet in this period.</p>';
+      list.innerHTML = leaders.length ? leaders.map((l) => `<li><span class="who">${avatarHtml(l, 28)}${esc(l.name)}</span><strong>${l.points}</strong></li>`).join('') : '<p class="muted">No points yet in this period.</p>';
     } catch { list.innerHTML = '<p class="muted">Offline.</p>'; }
   }
   root.querySelector('.seg').onclick = (e) => {

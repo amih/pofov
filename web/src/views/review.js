@@ -8,7 +8,7 @@ export default async function reviewView(root) {
   const me = await getMe();
   if (!me || me.trust_level < 2) return navigate('/me', { replace: true });
   const { locations, sightings } = await api('/api/review');
-  const who = (r) => esc(r.by_name || r.by_email);
+  const who = (r) => esc(r.by_name);
   root.innerHTML = `
   <section class="page">
     <h1>Review queue</h1>

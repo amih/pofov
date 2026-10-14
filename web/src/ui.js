@@ -44,3 +44,12 @@ export async function shrinkImage(file, maxSide = 2000) {
   bmp.close();
   return new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.85));
 }
+
+// Round picture, or the first letter of the screen name on a colour picked from it.
+const AVATAR_COLORS = ['#3d7cb5', '#3f8f6b', '#c0443a', '#c9962a', '#9a5b2e', '#7b5ea7'];
+export function avatarHtml({ avatar, screen_name, name }, size = 32) {
+  const label = screen_name ?? name ?? '?';
+  if (avatar) return `<img class="avatar" src="${esc(avatar)}" alt="" width="${size}" height="${size}" style="width:${size}px;height:${size}px">`;
+  const color = AVATAR_COLORS[[...label].reduce((a, c) => a + c.codePointAt(0), 0) % AVATAR_COLORS.length];
+  return `<span class="avatar letter" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.45)}px;background:${color}">${esc([...label][0]?.toUpperCase() ?? '?')}</span>`;
+}

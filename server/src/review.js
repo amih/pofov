@@ -10,14 +10,14 @@ export default async function reviewRoutes(app) {
     const locations = await many(
       `SELECT l.id, l.code, l.name, l.description, l.restricted, l.created_at,
               ST_Y(l.geom::geometry) AS lat, ST_X(l.geom::geometry) AS lon,
-              p.thumb_path, u.email AS by_email, u.display_name AS by_name
+              p.thumb_path, COALESCE(u.screen_name, 'Reader #' || u.id) AS by_name
          FROM locations l LEFT JOIN photos p ON p.id = l.photo_id LEFT JOIN users u ON u.id = l.created_by
         WHERE l.status = 'pending' ORDER BY l.created_at LIMIT 100`,
     );
     const sightings = await many(
       `SELECT s.id, s.kind, s.distance_m, s.created_at, b.title, b.authors, b.isbn13, b.cover_url,
               l.code, l.name AS location_name, l.status AS location_status,
-              p.thumb_path, u.email AS by_email, u.display_name AS by_name
+              p.thumb_path, COALESCE(u.screen_name, 'Reader #' || u.id) AS by_name
          FROM sightings s JOIN books b ON b.id = s.book_id JOIN locations l ON l.id = s.location_id
          LEFT JOIN photos p ON p.id = s.photo_id LEFT JOIN users u ON u.id = s.user_id
         WHERE s.status = 'pending' AND l.status = 'approved' ORDER BY s.created_at LIMIT 200`,

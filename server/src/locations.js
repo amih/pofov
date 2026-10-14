@@ -1,7 +1,7 @@
 import { config, POINTS } from './config.js';
 import { one, many, tx } from './db.js';
 import { requireUser } from './auth.js';
-import { savePhoto, photoUrls } from './photos.js';
+import { savePhoto, photoUrls, avatarUrl } from './photos.js';
 import { lookupIsbn, upsertBook } from './books.js';
 import { readForm } from './multipart.js';
 import { initialStatus, award, pointsForSighting, maybePromote } from './moderation.js';
@@ -69,12 +69,13 @@ export default async function locationRoutes(app) {
     const photo = loc.photo_id && await one('SELECT path, thumb_path FROM photos WHERE id = $1', [loc.photo_id]);
     const books = await many(PRESENT_BOOKS_SQL, [loc.id]);
     const activity = await many(
-      `SELECT s.kind, s.created_at, b.title, COALESCE(u.display_name, 'someone') AS who
+      `SELECT s.kind, s.created_at, b.title, COALESCE(u.screen_name, 'Reader #' || u.id) AS who, u.avatar_path
          FROM sightings s JOIN books b ON b.id = s.book_id LEFT JOIN users u ON u.id = s.user_id
         WHERE s.location_id = $1 AND s.status = 'approved'
         ORDER BY s.created_at DESC LIMIT 15`,
       [loc.id],
     );
+    for (const a of activity) { a.avatar = avatarUrl(a.avatar_path); delete a.avatar_path; }
     const pending = req.user ? (await one(
       `SELECT count(*)::int AS n FROM sightings WHERE location_id = $1 AND user_id = $2 AND status = 'pending'`,
       [loc.id, req.user.id],
@@ -211,12 +212,13 @@ export default async function locationRoutes(app) {
   app.get('/api/leaderboard', async (req) => {
     const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 3650);
     const rows = await many(
-      `SELECT COALESCE(u.display_name, 'Reader #' || u.id) AS name, sum(k.points)::int AS points
+      `SELECT COALESCE(u.screen_name, 'Reader #' || u.id) AS name, u.avatar_path, sum(k.points)::int AS points
          FROM karma_events k JOIN users u ON u.id = k.user_id
         WHERE k.created_at > now() - make_interval(days => $1)
         GROUP BY u.id ORDER BY points DESC LIMIT 20`,
       [days],
     );
+    for (const r of rows) { r.avatar = avatarUrl(r.avatar_path); delete r.avatar_path; }
     return { days, leaders: rows };
   });
 
