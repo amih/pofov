@@ -14,7 +14,7 @@ A shared map of free street libraries (book boxes, little free libraries, shelve
 
 | | |
 |---|---|
-| Web | Vite, vanilla JS, Leaflet + OSM tiles, Workbox service worker, ZXing WASM barcode reader |
+| Web | Vite, vanilla JS, Leaflet + MapLibre vector map (OpenFreeMap, recoloured), Workbox service worker, ZXing WASM barcode reader. Hebrew (default, RTL) and English — strings in `web/src/i18n.js` |
 | API | Node 22, Fastify 5, sharp (photos are re-encoded, which removes EXIF/GPS metadata) |
 | DB | PostgreSQL 16 + PostGIS (Docker) |
 

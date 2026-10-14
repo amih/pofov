@@ -28,6 +28,11 @@ registerRoute(
 );
 
 // Map tiles and book covers from other sites: show what we have, refresh in the background.
+// Vector map (style, fonts, icons, tiles) — the tile URLs carry a dataset version.
+registerRoute(
+  ({ url }) => url.hostname === 'tiles.openfreemap.org',
+  new StaleWhileRevalidate({ cacheName: 'vector-map', plugins: [new ExpirationPlugin({ maxEntries: 2000, maxAgeSeconds: 30 * 86400 })] }),
+);
 registerRoute(
   ({ url }) => url.hostname.endsWith('tile.openstreetmap.org'),
   new StaleWhileRevalidate({ cacheName: 'tiles', plugins: [new ExpirationPlugin({ maxEntries: 500, maxAgeSeconds: 14 * 86400 })] }),

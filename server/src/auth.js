@@ -105,11 +105,16 @@ export default async function authRoutes(app) {
       [sha256(token), email, LOGIN_TOKEN_MINUTES],
     );
     const link = `${config.baseUrl}/api/auth/verify?t=${token}`;
-    await sendMail({
-      to: email,
-      subject: 'Your POFOV sign-in link',
-      text: `Tap to sign in to POFOV:\n\n${link}\n\nThe link works once and expires in ${LOGIN_TOKEN_MINUTES} minutes.\nIf you did not ask for it, ignore this email.`,
-    }, req.log);
+    const mail = req.body?.lang === 'en'
+      ? {
+          subject: 'Your POFOV sign-in link',
+          text: `Tap to sign in to POFOV:\n\n${link}\n\nThe link works once and expires in ${LOGIN_TOKEN_MINUTES} minutes.\nIf you did not ask for it, ignore this email.`,
+        }
+      : {
+          subject: 'קישור הכניסה שלך ל־POFOV',
+          text: `לכניסה ל־POFOV הקישו על הקישור:\n\n${link}\n\nהקישור עובד פעם אחת, ותוקפו ${LOGIN_TOKEN_MINUTES} דקות.\nאם לא ביקשתם אותו, אפשר להתעלם מהמייל הזה.`,
+        };
+    await sendMail({ to: email, ...mail }, req.log);
     return { ok: true };
   });
 

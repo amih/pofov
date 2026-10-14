@@ -1,5 +1,6 @@
 import { toast } from './ui.js';
 import { pendingCount } from './queue.js';
+import { t } from './i18n.js';
 
 // How the app stays current without anyone ever needing a "hard refresh":
 //  1. The worker is checked for updates on load, whenever the app comes back to
@@ -16,7 +17,7 @@ export function initUpdates() {
   const prev = sessionStorage.getItem('pofov:updatedFrom');
   if (prev) {
     sessionStorage.removeItem('pofov:updatedFrom');
-    if (prev !== __APP_VERSION__) toast(`Updated to version ${__APP_VERSION__}`);
+    if (prev !== __APP_VERSION__) toast(t('updated', { v: __APP_VERSION__ }));
   }
   if (!('serviceWorker' in navigator) || import.meta.env.DEV) return;
 

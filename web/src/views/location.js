@@ -1,13 +1,12 @@
 import { api, getMe } from '../api.js';
 import { esc, getPosition, timeAgo, toast, avatarHtml } from '../ui.js';
-
-const KIND_TEXT = { seen: 'saw', taken: 'took', gone: 'found missing' };
+import { t, lang } from '../i18n.js';
 
 export default async function locationView(root, [code]) {
-  root.innerHTML = '<section class="page"><p class="muted">Loading…</p></section>';
+  root.innerHTML = `<section class="page"><p class="muted">${t('loading')}</p></section>`;
   let data;
   try { data = await api(`/api/locations/${code}`); } catch (e) {
-    root.innerHTML = `<section class="page"><h1>Library not found</h1><p>${e.status === 404 ? 'This code is not on the map (yet).' : 'You seem to be offline.'}</p><p><a href="/">Back to the map</a></p></section>`;
+    root.innerHTML = `<section class="page"><h1>${t('loc.notfound')}</h1><p>${t(e.status === 404 ? 'loc.notfound_404' : 'offline')}</p><p><a href="/">${t('back.map')}</a></p></section>`;
     return;
   }
   const { location: l, books, activity, my_pending } = data;
@@ -16,22 +15,22 @@ export default async function locationView(root, [code]) {
 
   root.innerHTML = `
   <section class="page">
-    ${l.photo ? `<img class="hero" src="${l.photo.url}" alt="Photo of the library">` : ''}
-    <h1>${esc(l.name || 'Free library')}</h1>
-    ${l.status === 'pending' ? '<p class="note">Waiting for review — only you can see it for now.</p>' : ''}
-    ${l.restricted ? '<p class="note">Inside a building or private area — you may need a resident to let you in.</p>' : ''}
+    ${l.photo ? `<img class="hero" src="${l.photo.url}" alt="${t('loc.photo_alt')}">` : ''}
+    <h1>${esc(l.name || t('free_library'))}</h1>
+    ${l.status === 'pending' ? `<p class="note">${t('loc.pending')}</p>` : ''}
+    ${l.restricted ? `<p class="note">${t('loc.restricted')}</p>` : ''}
     ${l.description ? `<p class="desc">${esc(l.description)}</p>` : ''}
-    <p class="muted">${l.last_checked_at ? `Last checked ${timeAgo(l.last_checked_at)}` : 'Not checked yet'}
-      · code <strong>${l.code}</strong>${l.source === 'osm' ? ` · from <a href="${l.osm}" target="_blank" rel="noopener">OpenStreetMap</a>` : ''}</p>
+    <p class="muted">${l.last_checked_at ? t('loc.checked', { when: timeAgo(l.last_checked_at) }) : t('loc.not_checked')}
+      · ${t('loc.code')} <strong dir="ltr">${l.code}</strong>${l.source === 'osm' ? ` · ${t('loc.from_osm_html', { url: l.osm })}` : ''}</p>
     <div class="actions">
-      <a class="btn primary" href="/l/${l.code}/add">📷 Add books</a>
-      <button class="btn" id="check">✓ It's still here</button>
-      <a class="btn" href="${nav}" target="_blank" rel="noopener">🧭 Directions</a>
+      <a class="btn primary" href="/l/${l.code}/add">${t('loc.add_books')}</a>
+      <button class="btn" id="check">${t('loc.still_here')}</button>
+      <a class="btn" href="${nav}" target="_blank" rel="noopener">${t('loc.directions')}</a>
     </div>
-    ${my_pending ? `<p class="note">${my_pending} of your reports are waiting for review.</p>` : ''}
+    ${my_pending ? `<p class="note">${t('loc.my_pending', { n: my_pending })}</p>` : ''}
 
-    <h2>On the shelf <span class="count">${books.length}</span></h2>
-    ${books.length ? '' : '<p class="muted">No books recorded yet. Be the first — scan the barcodes on the back covers.</p>'}
+    <h2>${t('loc.shelf')} <span class="count">${books.length}</span></h2>
+    ${books.length ? '' : `<p class="muted">${t('loc.no_books')}</p>`}
     <ul class="books">
       ${books.map((b) => `
         <li data-id="${b.id}">
@@ -39,17 +38,17 @@ export default async function locationView(root, [code]) {
           <div class="meta">
             <strong>${esc(b.title)}</strong>
             <span>${esc(b.authors.join(', '))}${b.year ? ` · ${b.year}` : ''}</span>
-            <span class="muted">seen ${timeAgo(b.last_seen)}</span>
-            <span class="row"><button class="link" data-kind="taken">I took it</button><button class="link" data-kind="gone">Not there</button></span>
+            <span class="muted">${t('loc.seen', { when: timeAgo(b.last_seen) })}</span>
+            <span class="row"><button class="link" data-kind="taken">${t('loc.took')}</button><button class="link" data-kind="gone">${t('loc.gone')}</button></span>
           </div>
         </li>`).join('')}
     </ul>
 
-    ${activity.length ? `<h2>Recent activity</h2><ul class="activity">${activity.map((a) =>
-      `<li>${avatarHtml({ avatar: a.avatar, name: a.who }, 22)} ${esc(a.who)} ${KIND_TEXT[a.kind]} <em>${esc(a.title)}</em> · ${timeAgo(a.created_at)}</li>`).join('')}</ul>` : ''}
+    ${activity.length ? `<h2>${t('loc.activity')}</h2><ul class="activity">${activity.map((a) =>
+      `<li>${avatarHtml({ avatar: a.avatar, name: a.who }, 22)} ${t(`activity.${a.kind}_html`, { who: esc(a.who), title: esc(a.title) })} · ${timeAgo(a.created_at)}</li>`).join('')}</ul>` : ''}
 
     <p class="muted small">
-      <a href="/api/locations/${l.code}/sign" target="_blank">🖨️ Print an A5 sign with a QR code for this library</a>
+      <a href="/api/locations/${l.code}/sign?lang=${lang()}" target="_blank">${t('loc.print')}</a>
     </p>
   </section>`;
 
@@ -61,9 +60,9 @@ export default async function locationView(root, [code]) {
     try {
       const p = await getPosition();
       await api(`/api/locations/${code}/check`, { method: 'POST', json: p });
-      toast('Thanks! Marked as checked.');
+      toast(t('loc.thanks_checked'));
     } catch (err) {
-      toast(err.body?.error === 'too_far' ? 'You need to be at the library to confirm it.' : err.message);
+      toast(err.body?.error === 'too_far' ? t('loc.too_far') : err.message);
       e.target.disabled = false;
     }
   };
@@ -78,7 +77,7 @@ export default async function locationView(root, [code]) {
     try { const p = await getPosition({ timeout: 8000 }); form.append('lat', p.lat); form.append('lon', p.lon); } catch {}
     try {
       const r = await api(`/api/locations/${code}/sightings`, { method: 'POST', form });
-      toast(r.sighting.status === 'approved' ? 'Thanks — updated.' : 'Thanks — a reviewer will confirm it.');
+      toast(t(r.sighting.status === 'approved' ? 'loc.thanks_updated' : 'loc.thanks_review'));
       if (r.sighting.status === 'approved') li.remove();
     } catch (err) { toast(err.message); }
   };

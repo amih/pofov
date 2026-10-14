@@ -12,10 +12,12 @@
     "vite-plugin-pwa": "^2.0.0"
   },
   "dependencies": {
+    "@maplibre/maplibre-gl-leaflet": "0.1.4",
     "barcode-detector": "^3.2.2",
     "idb-keyval": "^6.3.0",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
+    "maplibre-gl": "6.11.2",
     "workbox-core": "^7.4.1",
     "workbox-expiration": "^7.4.1",
     "workbox-precaching": "^7.4.1",

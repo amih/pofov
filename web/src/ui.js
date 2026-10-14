@@ -1,3 +1,5 @@
+import { t, lang } from './i18n.js';
+
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 export const $ = (sel, root = document) => root.querySelector(sel);
@@ -13,21 +15,22 @@ export function toast(text, ms = 3500) {
 
 export function timeAgo(iso) {
   const s = (Date.now() - new Date(iso)) / 1000;
-  if (s < 90) return 'just now';
+  if (s < 90) return t('time.just_now');
+  const rtf = new Intl.RelativeTimeFormat(lang(), { numeric: 'auto' });
   const units = [[60, 'minute'], [24, 'hour'], [30, 'day'], [12, 'month'], [Infinity, 'year']];
   let v = s / 60;
   for (const [n, name] of units) {
-    if (v < n) { const r = Math.round(v); return `${r} ${name}${r === 1 ? '' : 's'} ago`; }
+    if (v < n) return rtf.format(-Math.round(v), name);
     v /= n;
   }
 }
 
 export function getPosition({ timeout = 15000 } = {}) {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) return reject(new Error('This device has no location service.'));
+    if (!navigator.geolocation) return reject(new Error(t('geo.none')));
     navigator.geolocation.getCurrentPosition(
       (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy }),
-      (e) => reject(new Error(e.code === 1 ? 'Location permission was denied.' : 'Could not get your location.')),
+      (e) => reject(new Error(t(e.code === 1 ? 'geo.denied' : 'geo.fail'))),
       { enableHighAccuracy: true, timeout, maximumAge: 30000 },
     );
   });

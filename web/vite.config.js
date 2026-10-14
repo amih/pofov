@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+
 // Every build gets a unique version from the clock + git commit. There is
 // nothing to bump by hand: hashed filenames and the precache manifest change
 // whenever content changes, and version.json tells running apps a new build exists.
@@ -23,6 +24,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(version),
     __APP_BUILD__: String(build),
   },
+  worker: { format: 'es' },
   server: {
     proxy: { '/api': 'http://127.0.0.1:3870', '/uploads': 'http://127.0.0.1:3870' },
   },
@@ -45,9 +47,11 @@ export default defineConfig({
       },
       manifest: {
         id: '/',
-        name: 'POFOV — Pass On, Find Other Volumes',
+        name: 'POFOV — ספריות רחוב',
         short_name: 'POFOV',
-        description: 'Find free street libraries near you, see which books are there, and add the ones you discover.',
+        description: 'מפה משותפת של ספריות רחוב: מוצאים ארון ספרים קרוב, רואים אילו ספרים יש בו, ומוסיפים את מה שמצאתם.',
+        lang: 'he',
+        dir: 'rtl',
         start_url: '/',
         scope: '/',
         display: 'standalone',

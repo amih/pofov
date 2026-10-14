@@ -5,9 +5,10 @@ import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import { api } from '../api.js';
 import { esc, getPosition, toast } from '../ui.js';
+import { t, isRtl } from '../i18n.js';
 
 const VIEW_KEY = 'pofov:mapView';
-const DEFAULT_VIEW = { lat: 32.08, lon: 34.78, zoom: 13 }; // Tel Aviv
+const ISRAEL = [[29.45, 34.25], [33.34, 35.9]]; // first-visit view
 
 const pin = (books, pending) => L.divIcon({
   className: '',
@@ -33,14 +34,14 @@ function savedView() {
 export default function mapView(root) {
   root.innerHTML = `
     <div id="map"></div>
-    <button class="fab-locate" title="Show my location">◎</button>
-    <a class="fab-add" href="/add">＋ Add a library</a>`;
-  const start = savedView() ?? DEFAULT_VIEW;
-  const map = L.map('map', { zoomControl: false }).setView([start.lat, start.lon], start.zoom);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(map);
+    <button class="fab-locate" title="${t('map.locate')}" aria-label="${t('map.locate')}">◎</button>
+    <a class="fab-add" href="/add">${t('map.add')}</a>`;
+  const start = savedView();
+  const map = L.map('map', { zoomControl: false, maxZoom: 19 });
+  if (start) map.setView([start.lat, start.lon], start.zoom);
+  else map.fitBounds(ISRAEL);
+  let removed = false;
+  import('../basemap.js').then((m) => m.basemap()).then((layer) => { if (!removed) layer.addTo(map); });
   const cluster = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 50 });
   map.addLayer(cluster);
   const bubbles = L.layerGroup().addTo(map);
@@ -67,22 +68,22 @@ export default function mapView(root) {
       for (const l of locations) {
         if (shown.has(l.code)) continue;
         const m = L.marker([l.lat, l.lon], { icon: pin(l.books, l.status === 'pending') });
-        m.bindPopup(`<strong>${esc(l.name || 'Free library')}</strong><br>
-          ${l.books ? `${l.books} book${l.books > 1 ? 's' : ''} recorded` : 'No books recorded yet'}
-          ${l.status === 'pending' ? '<br><em>Waiting for review</em>' : ''}
-          <br><a href="/l/${l.code}">Open →</a>`);
+        m.bindPopup(`<div dir="${isRtl() ? 'rtl' : 'ltr'}"><strong>${esc(l.name || t('free_library'))}</strong><br>
+          ${l.books ? t('map.books', { n: l.books }) : t('map.no_books')}
+          ${l.status === 'pending' ? `<br><em>${t('map.pending')}</em>` : ''}
+          <br><a href="/l/${l.code}">${t('map.open')}</a></div>`);
         cluster.addLayer(m);
         shown.set(l.code, m);
       }
     } catch { /* offline: keep what is shown */ }
   }
 
-  let t;
+  let timer;
   map.on('moveend', () => {
     const c = map.getCenter();
     try { localStorage.setItem(VIEW_KEY, JSON.stringify({ lat: c.lat, lon: c.lng, zoom: map.getZoom() })); } catch {}
-    clearTimeout(t);
-    t = setTimeout(load, 250);
+    clearTimeout(timer);
+    timer = setTimeout(load, 250);
   });
   load();
 
@@ -95,7 +96,7 @@ export default function mapView(root) {
     } catch (e) { if (fly) toast(e.message); }
   }
   root.querySelector('.fab-locate').onclick = () => locate(true);
-  if (!savedView()) locate(true);
+  if (!start) locate(false);
 
-  return () => map.remove();
+  return () => { removed = true; map.remove(); };
 }
