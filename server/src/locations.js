@@ -9,6 +9,8 @@ import { parseLatLon, shortCode } from './util.js';
 
 const DUPLICATE_RADIUS_M = 25;
 const MAP_LIMIT = 5000;
+const CLUSTER_BELOW_ZOOM = 10;
+const GRID_CELLS = 16; // across the visible width
 
 // Latest approved sighting per book; a book is on the shelf when that is 'seen'.
 const PRESENT_BOOKS_SQL = `
@@ -49,16 +51,30 @@ export default async function locationRoutes(app) {
     if (bbox.length !== 4 || bbox.some((n) => !Number.isFinite(n))) {
       return reply.code(400).send({ error: 'bbox=minLon,minLat,maxLon,maxLat required' });
     }
+    const clamp = (n, lim) => Math.min(Math.max(n, -lim), lim);
+    const [w, s, e, n] = [clamp(bbox[0], 180), clamp(bbox[1], 90), clamp(bbox[2], 180), clamp(bbox[3], 90)];
+    const where = `l.geom::geometry && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+          AND (l.status = 'approved' OR l.created_by = $5)`;
+    const params = [w, s, e, n, req.user?.id ?? null];
+
+    // Zoomed out: one bubble per grid cell instead of thousands of pins.
+    if (Number(req.query.zoom) < CLUSTER_BELOW_ZOOM) {
+      const clusters = await many(
+        `SELECT count(*)::int AS n, avg(ST_Y(l.geom::geometry)) AS lat, avg(ST_X(l.geom::geometry)) AS lon
+           FROM locations l WHERE ${where}
+          GROUP BY ST_SnapToGrid(l.geom::geometry, $6)`,
+        [...params, Math.max(e - w, 0.01) / GRID_CELLS],
+      );
+      return { clusters };
+    }
     const rows = await many(
       `SELECT l.code, l.name, l.source, l.status, l.restricted,
               ST_Y(l.geom::geometry) AS lat, ST_X(l.geom::geometry) AS lon,
               (SELECT count(DISTINCT s.book_id) FROM sightings s
                 WHERE s.location_id = l.id AND s.status = 'approved')::int AS books
-         FROM locations l
-        WHERE l.geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)::geography
-          AND (l.status = 'approved' OR l.created_by = $5)
+         FROM locations l WHERE ${where}
         LIMIT ${MAP_LIMIT}`,
-      [...bbox, req.user?.id ?? null],
+      params,
     );
     return { locations: rows, truncated: rows.length === MAP_LIMIT };
   });

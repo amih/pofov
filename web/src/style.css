@@ -81,6 +81,7 @@ body.full #view { position: fixed; top: calc(var(--top-h) + env(safe-area-inset-
 .pin { width: 34px; height: 34px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--wood); border: 3px solid #fff; box-shadow: 0 2px 6px rgb(0 0 0 / .35); display: flex; align-items: center; justify-content: center; }
 .pin span { transform: rotate(45deg); color: #fff; font-weight: 700; font-size: 12px; }
 .pin.pending { background: var(--muted); }
+.bubble { border-radius: 50%; background: color-mix(in srgb, var(--wood) 85%, transparent); border: 3px solid #fff; box-shadow: 0 2px 6px rgb(0 0 0 / .35); color: #fff; font-weight: 700; font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .leaflet-container { font: inherit; }
 .mini-map { height: 220px; border-radius: var(--radius); overflow: hidden; }
 

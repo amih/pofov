@@ -17,6 +17,15 @@ const pin = (books, pending) => L.divIcon({
   popupAnchor: [0, -36],
 });
 
+const bubble = (n) => {
+  const size = Math.round(28 + 10 * Math.log10(n));
+  return L.divIcon({
+    className: '',
+    html: `<div class="bubble" style="width:${size}px;height:${size}px">${n >= 10000 ? `${Math.round(n / 1000)}k` : n}</div>`,
+    iconSize: [size, size],
+  });
+};
+
 function savedView() {
   try { return JSON.parse(localStorage.getItem(VIEW_KEY)) || null; } catch { return null; }
 }
@@ -34,14 +43,27 @@ export default function mapView(root) {
   }).addTo(map);
   const cluster = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 50 });
   map.addLayer(cluster);
+  const bubbles = L.layerGroup().addTo(map);
   const shown = new Map();
   let me = null;
 
   async function load() {
     const b = map.getBounds();
     const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((n) => n.toFixed(5)).join(',');
+    const zoom = map.getZoom();
     try {
-      const { locations } = await api(`/api/locations?bbox=${bbox}`);
+      const { locations, clusters } = await api(`/api/locations?bbox=${bbox}&zoom=${zoom}`);
+      if (zoom !== map.getZoom()) return; // a newer load is coming
+      bubbles.clearLayers();
+      if (clusters) {
+        map.removeLayer(cluster);
+        for (const c of clusters) {
+          if (c.n === 1) { bubbles.addLayer(L.marker([c.lat, c.lon], { icon: pin(0) }).on('click', () => map.setView([c.lat, c.lon], 15))); continue; }
+          bubbles.addLayer(L.marker([c.lat, c.lon], { icon: bubble(c.n) }).on('click', () => map.setView([c.lat, c.lon], Math.min(zoom + 3, 16))));
+        }
+        return;
+      }
+      map.addLayer(cluster);
       for (const l of locations) {
         if (shown.has(l.code)) continue;
         const m = L.marker([l.lat, l.lon], { icon: pin(l.books, l.status === 'pending') });
