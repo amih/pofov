@@ -4,6 +4,7 @@ import { startQueue, onQueueChange, flush } from './queue.js';
 import { toast, avatarHtml } from './ui.js';
 import { getMe } from './api.js';
 import { navigate } from './nav.js';
+import { trackPageView } from './analytics.js';
 import mapView from './views/map.js';
 import locationView from './views/location.js';
 import addLocationView from './views/add-location.js';
@@ -52,6 +53,7 @@ async function render() {
     main.innerHTML = '<section class="page"><h1>Not found</h1><p><a href="/">Back to the map</a></p></section>';
     return;
   }
+  trackPageView();
   cleanup = (await view(main, params.slice(1), new URLSearchParams(location.search))) || null;
 }
 

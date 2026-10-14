@@ -17,6 +17,7 @@ async function overpass(bbox) {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'POFOV seed (https://pofov.com)' },
         body: 'data=' + encodeURIComponent(query),
+        signal: AbortSignal.timeout(330_000),
       });
       if (res.ok) return (await res.json()).elements;
       console.log(`  ${new URL(url).host} ${res.status}, retrying`);
@@ -65,7 +66,7 @@ let total = 0;
 for (const [i, bbox] of tiles.entries()) {
   const elements = await overpass(bbox);
   total += await upsert(elements);
-  if (elements.length) console.log(`[${i + 1}/${tiles.length}] ${bbox}: ${elements.length}`);
+  console.log(`[${i + 1}/${tiles.length}] ${bbox}: ${elements.length}`);
   if (tiles.length > 1) await sleep(2000);
 }
 console.log(`upserted ${total}`);
