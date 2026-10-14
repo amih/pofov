@@ -1,40 +1,48 @@
 // Imports every amenity=public_bookcase from OpenStreetMap (ODbL, © OpenStreetMap
 // contributors). Safe to re-run: existing OSM rows are updated in place.
-//   node scripts/seed-osm.js                # whole world, in tiles
+//   node scripts/seed-osm.js                # whole world
 //   node scripts/seed-osm.js 29,34,34,36    # one bbox: south,west,north,east
 import { pool } from '../src/db.js';
 import { shortCode } from '../src/util.js';
 
-const ENDPOINTS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// QLever (University of Freiburg) answers the whole planet in seconds; public Overpass
+// servers often time out on large areas.
+const QLEVER = 'https://qlever.dev/api/osm-planet';
+const TAGS = ['name', 'name:en', 'description', 'operator', 'opening_hours', 'access', 'indoor'];
 
-async function overpass(bbox) {
-  const query = `[out:json][timeout:300];nwr["amenity"="public_bookcase"](${bbox});out center tags;`;
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const url = ENDPOINTS[attempt % ENDPOINTS.length];
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'POFOV seed (https://pofov.com)' },
-        body: 'data=' + encodeURIComponent(query),
-        signal: AbortSignal.timeout(330_000),
-      });
-      if (res.ok) return (await res.json()).elements;
-      console.log(`  ${new URL(url).host} ${res.status}, retrying`);
-    } catch (err) {
-      console.log(`  ${new URL(url).host} ${err.message}, retrying`);
-    }
-    await sleep(15000 * (attempt + 1));
+async function fetchBookcases() {
+  const vars = TAGS.map((t, i) => `?t${i}`).join(' ');
+  const optionals = TAGS.map((t, i) => `OPTIONAL { ?o <https://www.openstreetmap.org/wiki/Key:${t}> ?t${i} }`).join('\n');
+  const query = `PREFIX geo: <http://www.opengis.net/ont/geosparql#>
+PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
+SELECT ?o ?c ${vars} WHERE {
+  ?o <https://www.openstreetmap.org/wiki/Key:amenity> "public_bookcase" .
+  ?o geo:hasGeometry/geo:asWKT ?g . BIND (geof:centroid(?g) AS ?c)
+  ${optionals}
+}`;
+  const res = await fetch(QLEVER, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/sparql-results+json', 'User-Agent': 'POFOV seed (https://pofov.com)' },
+    body: 'query=' + encodeURIComponent(query),
+    signal: AbortSignal.timeout(600_000),
+  });
+  if (!res.ok) throw new Error(`QLever ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const byId = new Map(); // OPTIONAL tags with several values repeat a row
+  for (const r of (await res.json()).results.bindings) {
+    const [, type, id] = r.o.value.match(/\/(node|way|relation)\/(\d+)$/) ?? [];
+    const pt = r.c?.value.match(/POINT\(([-\d.eE]+) ([-\d.eE]+)\)/);
+    if (!type || !pt || byId.has(r.o.value)) continue;
+    const tags = {};
+    TAGS.forEach((t, i) => { if (r[`t${i}`]) tags[t] = r[`t${i}`].value; });
+    byId.set(r.o.value, { type, id: Number(id), lon: Number(pt[1]), lat: Number(pt[2]), tags });
   }
-  throw new Error(`Overpass failed for ${bbox}`);
+  return [...byId.values()];
 }
 
 async function upsert(elements) {
   let n = 0;
   for (const el of elements) {
-    const lat = el.lat ?? el.center?.lat;
-    const lon = el.lon ?? el.center?.lon;
-    if (lat == null || lon == null) continue;
+    const { lat, lon } = el;
     const t = el.tags ?? {};
     const name = t.name || t['name:en'] || null;
     const description = [t.description, t.operator && `Operator: ${t.operator}`, t.opening_hours && `Hours: ${t.opening_hours}`]
@@ -52,22 +60,9 @@ async function upsert(elements) {
   return n;
 }
 
-// Most bookcases are in Europe, so tiles are small enough there to keep each query light.
-function worldTiles() {
-  const tiles = [];
-  for (let s = -60; s < 80; s += 10) {
-    for (let w = -180; w < 180; w += 20) tiles.push(`${s},${w},${s + 10},${w + 20}`);
-  }
-  return tiles;
-}
-
-const tiles = process.argv[2] ? [process.argv[2]] : worldTiles();
-let total = 0;
-for (const [i, bbox] of tiles.entries()) {
-  const elements = await overpass(bbox);
-  total += await upsert(elements);
-  console.log(`[${i + 1}/${tiles.length}] ${bbox}: ${elements.length}`);
-  if (tiles.length > 1) await sleep(2000);
-}
-console.log(`upserted ${total}`);
+const bbox = process.argv[2]?.split(',').map(Number); // south,west,north,east
+let elements = await fetchBookcases();
+if (bbox) elements = elements.filter((e) => e.lat >= bbox[0] && e.lon >= bbox[1] && e.lat <= bbox[2] && e.lon <= bbox[3]);
+console.log(`fetched ${elements.length}`);
+console.log(`upserted ${await upsert(elements)}`);
 await pool.end();
