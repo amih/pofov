@@ -18,7 +18,7 @@ const pin = (books, pending) => L.divIcon({
 });
 
 const bubble = (n) => {
-  const size = Math.round(28 + 10 * Math.log10(n));
+  const size = Math.round(Math.min(28 + 8 * Math.log10(n), 56));
   return L.divIcon({
     className: '',
     html: `<div class="bubble" style="width:${size}px;height:${size}px">${n >= 10000 ? `${Math.round(n / 1000)}k` : n}</div>`,
@@ -52,7 +52,7 @@ export default function mapView(root) {
     const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((n) => n.toFixed(5)).join(',');
     const zoom = map.getZoom();
     try {
-      const { locations, clusters } = await api(`/api/locations?bbox=${bbox}&zoom=${zoom}`);
+      const { locations, clusters } = await api(`/api/locations?bbox=${bbox}&zoom=${zoom}&px=${map.getSize().x}`);
       if (zoom !== map.getZoom()) return; // a newer load is coming
       bubbles.clearLayers();
       if (clusters) {

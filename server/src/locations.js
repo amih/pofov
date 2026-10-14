@@ -10,7 +10,7 @@ import { parseLatLon, shortCode } from './util.js';
 const DUPLICATE_RADIUS_M = 25;
 const MAP_LIMIT = 5000;
 const CLUSTER_BELOW_ZOOM = 10;
-const GRID_CELLS = 16; // across the visible width
+const CELL_PX = 64; // one bubble per ~64 screen pixels
 
 // Latest approved sighting per book; a book is on the shelf when that is 'seen'.
 const PRESENT_BOOKS_SQL = `
@@ -63,7 +63,7 @@ export default async function locationRoutes(app) {
         `SELECT count(*)::int AS n, avg(ST_Y(l.geom::geometry)) AS lat, avg(ST_X(l.geom::geometry)) AS lon
            FROM locations l WHERE ${where}
           GROUP BY ST_SnapToGrid(l.geom::geometry, $6)`,
-        [...params, Math.max(e - w, 0.01) / GRID_CELLS],
+        [...params, Math.max(e - w, 0.01) / (Math.min(Math.max(Number(req.query.px) || 400, 200), 4000) / CELL_PX)],
       );
       return { clusters };
     }
