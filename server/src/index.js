@@ -1,0 +1,64 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import Fastify from 'fastify';
+import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
+import rateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
+import { config } from './config.js';
+import authRoutes, { currentUser } from './auth.js';
+import locationRoutes from './locations.js';
+import reviewRoutes from './review.js';
+import signRoutes from './sign.js';
+
+const app = Fastify({ logger: true, trustProxy: '127.0.0.1', bodyLimit: 1024 * 1024 });
+
+await app.register(cookie);
+await app.register(multipart, { limits: { fileSize: 15 * 1024 * 1024, files: 4, fields: 20 } });
+await app.register(rateLimit, { global: false });
+
+// The web build writes version.json; the API echoes it so open clients notice a deploy.
+function webVersion() {
+  try { return JSON.parse(readFileSync(join(config.webDist, 'version.json'), 'utf8')); } catch { return null; }
+}
+let deployed = webVersion();
+setInterval(() => { deployed = webVersion(); }, 30_000).unref();
+
+app.addHook('onRequest', async (req, reply) => {
+  if (!req.url.startsWith('/api/')) return;
+  if (deployed) reply.header('X-App-Version', deployed.version);
+  const build = Number(req.headers['x-app-build']);
+  if (config.minClientBuild && Number.isFinite(build) && build < config.minClientBuild) {
+    return reply.code(426).send({ error: 'update_required' });
+  }
+  req.user = await currentUser(req);
+});
+
+await app.register(authRoutes);
+await app.register(locationRoutes);
+await app.register(reviewRoutes);
+await app.register(signRoutes);
+
+app.get('/api/health', async () => ({ ok: true, web: deployed?.version ?? null }));
+
+// In production nginx serves /uploads and the web build (see deploy/nginx.conf).
+// SERVE_WEB=1 makes this process do it instead, with the same cache rules.
+await app.register(fastifyStatic, { root: config.uploadDir, prefix: '/uploads/', decorateReply: false });
+if (process.env.SERVE_WEB === '1') {
+  await app.register(fastifyStatic, {
+    root: config.webDist,
+    prefix: '/',
+    cacheControl: false,
+    setHeaders(reply, path) {
+      reply.header('Cache-Control', path.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache');
+    },
+  });
+  app.setNotFoundHandler((req, reply) => {
+    if (!['GET', 'HEAD'].includes(req.method) || req.url.startsWith('/api/') || req.url.startsWith('/uploads/')) {
+      return reply.code(404).send({ error: 'not_found' });
+    }
+    reply.header('Cache-Control', 'no-cache').sendFile('index.html');
+  });
+}
+
+await app.listen({ port: config.port, host: config.host });

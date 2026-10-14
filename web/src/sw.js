@@ -1,0 +1,38 @@
+import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching';
+import { registerRoute, NavigationRoute } from 'workbox-routing';
+import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
+import { ExpirationPlugin } from 'workbox-expiration';
+import { clientsClaim } from 'workbox-core';
+
+// The new worker installs in the background and then WAITS. The page decides
+// when it is safe to switch (no upload in progress) and sends SKIP_WAITING.
+self.addEventListener('message', (e) => {
+  if (e.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+// Take control of the page on first install, so later updates can wait for it.
+clientsClaim();
+cleanupOutdatedCaches();
+precacheAndRoute(self.__WB_MANIFEST);
+
+// App routes (/l/ABC123, /add, …) all load the cached index.html.
+// API and server-rendered pages are never handled by the worker.
+registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html'), {
+  denylist: [/^\/api\//, /^\/uploads\//],
+}));
+
+// Uploaded photos never change (unique file names), so cache-first is safe.
+registerRoute(
+  ({ url }) => url.origin === self.location.origin && url.pathname.startsWith('/uploads/'),
+  new CacheFirst({ cacheName: 'photos', plugins: [new ExpirationPlugin({ maxEntries: 300, maxAgeSeconds: 30 * 86400 })] }),
+);
+
+// Map tiles and book covers from other sites: show what we have, refresh in the background.
+registerRoute(
+  ({ url }) => url.hostname.endsWith('tile.openstreetmap.org'),
+  new StaleWhileRevalidate({ cacheName: 'tiles', plugins: [new ExpirationPlugin({ maxEntries: 500, maxAgeSeconds: 14 * 86400 })] }),
+);
+registerRoute(
+  ({ url }) => url.hostname === 'covers.openlibrary.org' || url.hostname.endsWith('books.google.com'),
+  new CacheFirst({ cacheName: 'covers', plugins: [new ExpirationPlugin({ maxEntries: 500, maxAgeSeconds: 60 * 86400 })] }),
+);

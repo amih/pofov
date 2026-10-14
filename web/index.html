@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>POFOV — free street libraries near you</title>
+  <meta name="description" content="Find free street libraries (little free libraries, book boxes) near you, see which books are on the shelf, and add the ones you discover.">
+  <meta name="theme-color" content="#9a5b2e">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="POFOV">
+  <meta property="og:title" content="POFOV — Pass On, Find Other Volumes">
+  <meta property="og:description" content="A shared map of free street libraries and the books on their shelves.">
+  <meta property="og:image" content="https://pofov.com/icons/og-600.jpg">
+  <meta property="og:type" content="website">
+</head>
+<body>
+  <header class="top">
+    <a href="/" class="brand"><img src="/icons/logo-160.webp" alt="" width="34" height="34"><span>POFOV</span></a>
+    <span id="queue-badge" class="queue" hidden></span>
+  </header>
+  <main id="view"></main>
+  <nav class="tabs">
+    <a href="/"><span>🗺️</span>Map</a>
+    <a href="/add"><span>➕</span>Add library</a>
+    <a href="/top"><span>🏆</span>Top</a>
+    <a href="/me"><span>👤</span>Me</a>
+  </nav>
+  <footer hidden><span id="app-version"></span></footer>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

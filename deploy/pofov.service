@@ -1,0 +1,16 @@
+[Unit]
+Description=POFOV API (pofov.com free street libraries)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=APP_USER
+WorkingDirectory=APP_DIR/server
+EnvironmentFile=APP_DIR/.env
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

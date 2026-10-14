@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pofov
+      POSTGRES_USER: pofov
+      POSTGRES_PASSWORD: ${PGPASSWORD:-pofov}
+    ports:
+      - "127.0.0.1:${PGPORT:-5470}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

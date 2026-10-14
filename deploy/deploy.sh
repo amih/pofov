@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Build locally, ship to the server, migrate, restart.
+#   deploy/deploy.sh            (target from deploy/target.private: SSH=user@host APP_DIR=/path)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source deploy/target.private
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "Commit your changes first (the build version comes from the git commit)." >&2
+  exit 1
+fi
+
+npm run build
+
+# Old hashed assets are kept (no --delete under assets/) so a tab still running
+# the previous version can lazy-load its chunks until it updates.
+rsync -az --exclude node_modules --exclude .env --exclude uploads --exclude 'web/dist' \
+  --exclude .git ./ "$SSH:$APP_DIR/"
+rsync -az web/dist/assets/ "$SSH:$APP_DIR/web/dist/assets/"
+rsync -az --delete --exclude assets web/dist/ "$SSH:$APP_DIR/web/dist/"
+
+ssh "$SSH" "cd $APP_DIR && npm ci --omit=dev -w server --include-workspace-root=false >/dev/null \
+  && (cd server && node --env-file=../.env src/migrate.js) && sudo systemctl restart pofov"
+echo "Deployed $(cat web/dist/version.json)"

@@ -1,0 +1,15 @@
+{
+  "name": "pofov",
+  "private": true,
+  "description": "POFOV — Pass On, Find Other Volumes. Crowd-sourced map of free street libraries.",
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "db:up": "docker compose up -d db",
+    "migrate": "npm -w server run migrate",
+    "seed:osm": "npm -w server run seed:osm",
+    "dev:server": "npm -w server run dev",
+    "dev:web": "npm -w web run dev",
+    "build": "npm -w web run build"
+  },
+  "license": "AGPL-3.0-or-later"
+}
