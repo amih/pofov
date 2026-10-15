@@ -14,14 +14,15 @@ export function toast(text, ms = 3500) {
 }
 
 // Modal with up to two buttons. Resolves true for `ok`, false for `cancel`/dismiss.
-export function dialog({ title, html, ok, cancel }) {
+// read(el): when given, OK resolves with what it returns (e.g. form values) instead of true.
+export function dialog({ title, html, ok, cancel, read }) {
   return new Promise((resolve) => {
     const el = document.createElement('div');
     el.className = 'dialog-back';
     el.innerHTML = `<div class="dialog" role="dialog" aria-modal="true">
       ${title ? `<h2>${esc(title)}</h2>` : ''}<div class="dialog-body">${html}</div>
       <div class="dialog-actions">${ok ? `<button class="btn primary" data-r="1">${esc(ok)}</button>` : ''}${cancel ? `<button class="btn" data-r="0">${esc(cancel)}</button>` : ''}</div></div>`;
-    const close = (r) => { el.remove(); resolve(r); };
+    const close = (r) => { const v = r && read ? read(el) : r; el.remove(); resolve(v); };
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-r]');
       if (b) close(b.dataset.r === '1');

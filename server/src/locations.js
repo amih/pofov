@@ -15,6 +15,16 @@ const CLUSTER_BELOW_ZOOM = 10;
 const CELL_PX = 64; // one bubble per ~64 screen pixels
 
 // Latest approved sighting per book; a book is on the shelf when that is 'seen'.
+// Books whose latest report here is "taken" or "gone", in the last 90 days.
+const TAKEN_BOOKS_SQL = `
+  SELECT * FROM (
+    SELECT DISTINCT ON (s.book_id) b.id, b.title, b.authors, b.year, b.cover_url, s.kind, s.created_at AS taken_at
+      FROM sightings s JOIN books b ON b.id = s.book_id
+     WHERE s.location_id = $1 AND s.status = 'approved'
+     ORDER BY s.book_id, s.created_at DESC) x
+   WHERE kind IN ('taken', 'gone') AND taken_at > now() - interval '90 days'
+   ORDER BY taken_at DESC LIMIT 30`;
+
 const PRESENT_BOOKS_SQL = `
   WITH latest AS (
     SELECT DISTINCT ON (s.book_id) s.book_id, s.kind, s.created_at
@@ -86,6 +96,7 @@ export default async function locationRoutes(app) {
     if (!visibleTo(loc, req.user)) return reply.code(404).send({ error: 'not_found' });
     const photo = loc.photo_id && await one('SELECT path, thumb_path FROM photos WHERE id = $1', [loc.photo_id]);
     const books = await many(PRESENT_BOOKS_SQL, [loc.id]);
+    const taken = await many(TAKEN_BOOKS_SQL, [loc.id]);
     const activity = await many(
       `SELECT s.kind, s.created_at, b.title, COALESCE(u.screen_name, 'Reader #' || u.id) AS who, u.avatar_path
          FROM sightings s JOIN books b ON b.id = s.book_id LEFT JOIN users u ON u.id = s.user_id
@@ -115,7 +126,7 @@ export default async function locationRoutes(app) {
         photo: photoUrls(photo),
         place: loc.place_id ? await one('SELECT id, slug, name, name_he FROM places WHERE id = $1', [loc.place_id]) : null,
       },
-      books, activity, my_pending: pending.n, my_pending_edits: pending.edits, my_scans: scans,
+      books, taken, activity, my_pending: pending.n, my_pending_edits: pending.edits, my_scans: scans,
     };
   });
 
@@ -265,4 +276,4 @@ export default async function locationRoutes(app) {
 
 export const splitAuthors = (s) => String(s ?? '').split(/[,;&]/).map((a) => a.trim()).filter(Boolean).slice(0, 10);
 
-export { locationByCode, visibleTo, distanceTo, PRESENT_BOOKS_SQL };
+export { locationByCode, visibleTo, distanceTo, PRESENT_BOOKS_SQL, TAKEN_BOOKS_SQL };

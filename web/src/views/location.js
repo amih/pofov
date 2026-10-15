@@ -1,6 +1,7 @@
 import { api, getMe } from '../api.js';
 import { esc, getPosition, timeAgo, toast, avatarHtml, noStringsNote } from '../ui.js';
 import { t, lang } from '../i18n.js';
+import { watchDialog } from '../watch.js';
 
 export default async function locationView(root, [code]) {
   root.innerHTML = `<section class="page"><p class="muted">${t('loading')}</p></section>`;
@@ -9,7 +10,7 @@ export default async function locationView(root, [code]) {
     root.innerHTML = `<section class="page"><h1>${t('loc.notfound')}</h1><p>${t(e.status === 404 ? 'loc.notfound_404' : 'offline')}</p><p><a href="/">${t('back.map')}</a></p></section>`;
     return;
   }
-  const { location: l, books, activity, my_pending, my_pending_edits, my_scans = [] } = data;
+  const { location: l, books, taken = [], activity, my_pending, my_pending_edits, my_scans = [] } = data;
   const readyScan = my_scans.find((x) => x.status === 'done');
   const busyScan = my_scans.find((x) => x.status === 'queued' || x.status === 'processing');
   const me = await getMe();
@@ -52,6 +53,18 @@ export default async function locationView(root, [code]) {
         </li>`).join('')}
     </ul>
 
+    ${taken.length ? `<h2>${t('loc.taken_title')} <span class="count">${taken.length}</span></h2>
+    <ul class="books taken">${taken.map((b, i) => `
+        <li>
+          ${b.cover_url ? `<img src="${esc(b.cover_url)}" alt="" loading="lazy">` : '<div class="nocover">📖</div>'}
+          <div class="meta">
+            <strong>${esc(b.title)}</strong>
+            <span>${esc(b.authors.join(', '))}${b.year ? ` · ${b.year}` : ''}</span>
+            <span class="muted">${t(b.kind === 'gone' ? 'loc.gone_when' : 'loc.taken_when', { when: timeAgo(b.taken_at) })}</span>
+            <span class="row"><button class="link" data-watch="${i}">${t('watch.button')}</button></span>
+          </div>
+        </li>`).join('')}</ul>` : ''}
+
     ${activity.length ? `<h2>${t('loc.activity')}</h2><ul class="activity">${activity.map((a) =>
       `<li>${avatarHtml({ avatar: a.avatar, name: a.who }, 22)} ${t(`activity.${a.kind}_html`, { who: esc(a.who), title: esc(a.title) })} · ${timeAgo(a.created_at)}</li>`).join('')}</ul>` : ''}
 
@@ -74,6 +87,12 @@ export default async function locationView(root, [code]) {
       toast(err.body?.error === 'too_far' ? t('loc.too_far') : err.message);
       e.target.disabled = false;
     }
+  };
+
+  const takenList = root.querySelector('.books.taken');
+  if (takenList) takenList.onclick = (e) => {
+    const b = e.target.closest('[data-watch]');
+    if (b) watchDialog({ book: taken[Number(b.dataset.watch)], code: l.code });
   };
 
   root.querySelector('.books').onclick = async (e) => {

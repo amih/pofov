@@ -14,6 +14,7 @@ import editRoutes from './edits.js';
 import scanRoutes, { startScanWorker } from './scans.js';
 import { startAdminNotifier } from './notify.js';
 import seoRoutes, { renderShell } from './seo.js';
+import finderRoutes, { startWatchNotifier } from './finder.js';
 
 const app = Fastify({ logger: true, trustProxy: '127.0.0.1', bodyLimit: 1024 * 1024 });
 
@@ -45,6 +46,7 @@ await app.register(signRoutes);
 await app.register(editRoutes);
 await app.register(scanRoutes);
 await app.register(seoRoutes);
+await app.register(finderRoutes);
 
 app.get('/api/health', async () => ({ ok: true, web: deployed?.version ?? null }));
 
@@ -75,3 +77,4 @@ app.setNotFoundHandler(async (req, reply) => {
 await app.listen({ port: config.port, host: config.host });
 startScanWorker(app.log);
 startAdminNotifier(app.log);
+startWatchNotifier(app.log);

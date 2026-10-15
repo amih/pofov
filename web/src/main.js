@@ -18,6 +18,7 @@ import aboutView from './views/about.js';
 import scanView from './views/scan.js';
 import editLocationView from './views/edit-location.js';
 import pageView from './views/page.js';
+import searchView from './views/search.js';
 
 const routes = [
   [/^\/$/, mapView],
@@ -26,6 +27,7 @@ const routes = [
   [/^\/l\/([A-Za-z0-9]{4,10})$/, locationView],
   [/^\/scan\/([0-9a-f-]{36})$/, scanView],
   [/^\/add$/, addLocationView],
+  [/^\/search$/, searchView],
   [/^\/login$/, loginView],
   [/^\/me$/, meView],
   [/^\/top$/, topView],

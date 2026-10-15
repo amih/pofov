@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { config } from './config.js';
 import { one, many } from './db.js';
 import { escapeHtml as esc } from './util.js';
-import { PRESENT_BOOKS_SQL } from './locations.js';
+import { PRESENT_BOOKS_SQL, TAKEN_BOOKS_SQL } from './locations.js';
 import { translate } from '../../web/src/i18n.js';
 
 const LANGS = ['he', 'en'];
@@ -204,6 +204,7 @@ async function libraryPage(lng, T, code) {
       WHERE l.code = $1 AND l.status = 'approved'`, [code.toUpperCase()]);
   if (!l) return null;
   const books = await many(PRESENT_BOOKS_SQL, [l.id]);
+  const taken = await many(TAKEN_BOOKS_SQL, [l.id]);
   const nearby = await many(
     `SELECT l2.code, l2.name, 0 AS books FROM locations l2
       WHERE l2.status = 'approved' AND l2.id <> $1 AND ST_DWithin(l2.geom, $2::geography, 5000)
@@ -226,6 +227,7 @@ async function libraryPage(lng, T, code) {
         · <a href="https://www.google.com/maps/dir/?api=1&amp;destination=${l.lat},${l.lon}">${T('loc.directions')}</a></p>
       <h2>${T('loc.shelf')} (${books.length})</h2>
       ${books.length ? bookList(books) : `<p>${T('loc.no_books')}</p>`}
+      ${taken.length ? `<h2>${T('loc.taken_title')} (${taken.length})</h2>${bookList(taken)}` : ''}
       ${nearby.length ? `<h2>${T('seo.nearby_libs')}</h2>${libList(nearby, T, lng)}` : ''}
       <hr><p class="small">${T('shelves.note_html')}</p>`,
     jsonld: [

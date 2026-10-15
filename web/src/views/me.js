@@ -42,6 +42,8 @@ export default async function meView(root, _, query) {
       <div><strong>${me.sightings}</strong><span>${t('stat.reports')}</span></div>
     </div>
     ${me.trust_level === 0 ? `<p class="muted small">${t('me.first')}</p>` : ''}
+    <h2>🔔 ${t('watch.mine')}</h2>
+    <ul class="watches" id="watches"><li class="muted">${t('loading')}</li></ul>
     <p class="row">
       ${me.trust_level >= 2 ? `<a class="btn" href="/review">${t('me.review')}</a>` : ''}
       <a class="btn" href="/about">${esc(t('me.about'))}</a>
@@ -85,6 +87,26 @@ export default async function meView(root, _, query) {
     document.dispatchEvent(new Event('seferehov:me'));
     rerender();
   });
+  const watchList = root.querySelector('#watches');
+  if (watchList) {
+    const showWatches = async () => {
+      let watches = [];
+      try { ({ watches } = await api('/api/watches')); } catch { /* offline */ }
+      watchList.innerHTML = watches.length ? watches.map((w) => `<li><span><strong>${esc(w.title)}</strong> · ${esc(
+        w.scope === 'here' ? t('watch.scope_here', { lib: w.location_name || t('free_library') })
+          : w.scope === 'near' ? t('watch.scope_near', { km: w.km }) : t('watch.scope_anywhere'))}</span>
+        <button class="link" data-unwatch="${w.id}">${t('watch.remove')}</button></li>`).join('')
+        : `<li class="muted">${t('watch.none')}</li>`;
+    };
+    watchList.onclick = async (e) => {
+      const b = e.target.closest('[data-unwatch]');
+      if (!b) return;
+      await api(`/api/watches/${b.dataset.unwatch}`, { method: 'DELETE' }).catch(() => {});
+      showWatches();
+    };
+    showWatches();
+  }
+
   root.querySelector('#logout')?.addEventListener('click', async () => {
     await api('/api/auth/logout', { method: 'POST' });
     await getMe(true);
