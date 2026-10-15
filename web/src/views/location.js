@@ -48,6 +48,7 @@ export default async function locationView(root, [code]) {
             <strong>${esc(b.title)}</strong>
             <span>${esc(b.authors.join(', '))}${b.year ? ` · ${b.year}` : ''}</span>
             <span class="muted">${t('loc.seen', { when: timeAgo(b.last_seen) })}</span>
+            ${b.waiting?.others ? `<span class="waiting">👥 ${t('watch.waiting', { n: b.waiting.others, mine: b.waiting.mine })}</span>` : ''}
             <span class="row"><button class="link" data-kind="taken">${t('loc.took')}</button><button class="link" data-kind="gone">${t('loc.gone')}</button></span>
           </div>
         </li>`).join('')}
@@ -61,7 +62,8 @@ export default async function locationView(root, [code]) {
             <strong>${esc(b.title)}</strong>
             <span>${esc(b.authors.join(', '))}${b.year ? ` · ${b.year}` : ''}</span>
             <span class="muted">${t(b.kind === 'gone' ? 'loc.gone_when' : 'loc.taken_when', { when: timeAgo(b.taken_at) })}</span>
-            <span class="row"><button class="link" data-watch="${i}">${t('watch.button')}</button></span>
+            ${b.waiting?.others ? `<span class="waiting">👥 ${t('watch.waiting', { n: b.waiting.others, mine: b.waiting.mine })}</span>` : ''}
+            <span class="row"><button class="link" data-watch="${i}">${t(b.waiting?.mine ? 'watch.on' : 'watch.button')}</button></span>
           </div>
         </li>`).join('')}</ul>` : ''}
 

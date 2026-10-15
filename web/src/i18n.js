@@ -360,6 +360,28 @@ const he = {
   'loc.taken_title': 'נלקחו לאחרונה',
   'loc.taken_when': ({ when }) => `נלקח ${when}`,
   'loc.gone_when': ({ when }) => `לא נמצא ${when}`,
+  'menu.open': 'תפריט',
+  'menu.close': 'סגירה',
+  'menu.map': 'מפה',
+  'menu.search': 'חיפוש ספר',
+  'menu.add': 'הוספת ספרייה',
+  'menu.top': 'מובילים',
+  'menu.places': 'ספריות לפי מדינה ועיר',
+  'menu.me': 'הפרופיל שלי',
+  'menu.signin': 'כניסה או הרשמה',
+  'menu.watches': 'ספרים שאני מחכה להם',
+  'menu.review': 'תור אישורים',
+  'menu.install': 'התקנת האפליקציה',
+  'menu.about': 'אודות',
+  'menu.feedback': 'הצעות ומשוב',
+  'install.banner': 'התקינו את ספרחוב במסך הבית — נפתח מהר, גם בלי קליטה טובה.',
+  'install.yes': 'התקנה',
+  'install.how_title': 'איך מתקינים?',
+  'install.later': 'לא עכשיו',
+  'watch.waiting': ({ n, mine }) => (mine
+    ? (n === 1 ? 'עוד אדם אחד מחכה לספר הזה' : `עוד ${n} אנשים מחכים לספר הזה`)
+    : (n === 1 ? 'אדם אחד מחכה לספר הזה' : `${n} אנשים מחכים לספר הזה`)),
+  'watch.on': '🔔 אני ברשימת ההמתנה',
 };
 
 const en = {
@@ -718,6 +740,28 @@ const en = {
   'loc.taken_title': 'Recently taken',
   'loc.taken_when': ({ when }) => `Taken ${when}`,
   'loc.gone_when': ({ when }) => `Missing ${when}`,
+  'menu.open': 'Menu',
+  'menu.close': 'Close',
+  'menu.map': 'Map',
+  'menu.search': 'Find a book',
+  'menu.add': 'Add a library',
+  'menu.top': 'Top contributors',
+  'menu.places': 'Libraries by country and town',
+  'menu.me': 'My profile',
+  'menu.signin': 'Sign in or sign up',
+  'menu.watches': 'Books I am waiting for',
+  'menu.review': 'Review queue',
+  'menu.install': 'Install the app',
+  'menu.about': 'About',
+  'menu.feedback': 'Suggestions and feedback',
+  'install.banner': 'Install Seferehov on your home screen — it opens fast, even with a weak signal.',
+  'install.yes': 'Install',
+  'install.how_title': 'How to install',
+  'install.later': 'Not now',
+  'watch.waiting': ({ n, mine }) => (mine
+    ? (n === 1 ? '1 more person is waiting for this book' : `${n} more people are waiting for this book`)
+    : (n === 1 ? '1 person is waiting for this book' : `${n} people are waiting for this book`)),
+  'watch.on': '🔔 I am on the waiting list',
 };
 
 const DICT = { he, en };

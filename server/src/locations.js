@@ -7,6 +7,7 @@ import { readForm } from './multipart.js';
 import { initialStatus, locationStatus, award, pointsForSighting } from './moderation.js';
 import { parseLatLon, shortCode } from './util.js';
 import { checkPrivate } from './privacy.js';
+import { waitingFor } from './finder.js';
 
 const DUPLICATE_RADIUS_M = 25;
 export const SIGHTING_KINDS = ['seen', 'added', 'taken', 'gone'];
@@ -97,6 +98,8 @@ export default async function locationRoutes(app) {
     const photo = loc.photo_id && await one('SELECT path, thumb_path FROM photos WHERE id = $1', [loc.photo_id]);
     const books = await many(PRESENT_BOOKS_SQL, [loc.id]);
     const taken = await many(TAKEN_BOOKS_SQL, [loc.id]);
+    const waiting = await waitingFor([...books, ...taken].map((b) => b.id), req.user?.id);
+    for (const b of [...books, ...taken]) b.waiting = waiting.get(b.id) ?? null;
     const activity = await many(
       `SELECT s.kind, s.created_at, b.title, COALESCE(u.screen_name, 'Reader #' || u.id) AS who, u.avatar_path
          FROM sightings s JOIN books b ON b.id = s.book_id LEFT JOIN users u ON u.id = s.user_id

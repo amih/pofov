@@ -104,7 +104,7 @@ export default async function meView(root, _, query) {
       await api(`/api/watches/${b.dataset.unwatch}`, { method: 'DELETE' }).catch(() => {});
       showWatches();
     };
-    showWatches();
+    showWatches().then(() => { if (location.hash === '#watches') watchList.scrollIntoView({ block: 'center' }); });
   }
 
   root.querySelector('#logout')?.addEventListener('click', async () => {

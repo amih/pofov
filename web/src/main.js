@@ -18,6 +18,8 @@ import aboutView from './views/about.js';
 import scanView from './views/scan.js';
 import editLocationView from './views/edit-location.js';
 import pageView from './views/page.js';
+import { initMenu } from './menu.js';
+import './install.js';
 import searchView from './views/search.js';
 
 const routes = [
@@ -74,7 +76,7 @@ document.addEventListener('click', (e) => {
   const url = new URL(a.href, location.href);
   if (url.origin !== location.origin || url.pathname.startsWith('/api/')) return;
   e.preventDefault();
-  navigate(url.pathname + url.search);
+  navigate(url.pathname + url.search + url.hash);
 });
 window.addEventListener('popstate', render);
 window.addEventListener('seferehov:navigate', render);
@@ -112,6 +114,7 @@ document.addEventListener('seferehov:lang', () => { translateShell(); showMeTab(
 applyLang();
 translateShell();
 
+initMenu();
 initUpdates();
 startQueue();
 window.addEventListener('online', async () => {

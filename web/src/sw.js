@@ -18,7 +18,7 @@ precacheAndRoute(self.__WB_MANIFEST);
 // App routes (/l/ABC123, /add, …) all load the cached index.html.
 // API and server-rendered pages are never handled by the worker.
 registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html'), {
-  denylist: [/^\/api\//, /^\/uploads\//],
+  denylist: [/^\/api\//, /^\/uploads\//, /^\/robots\.txt$/, /^\/sitemap/],
 }));
 
 // Uploaded photos never change (unique file names), so cache-first is safe.

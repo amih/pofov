@@ -9,12 +9,21 @@ import { parseLatLon } from './util.js';
 const KM_CHOICES = [1, 5, 20, 50];
 const TAKEN_DAYS = 180;        // a taken book is still shown ("was here") this long
 const RESULTS = 30;
-const NOTIFY_EVERY_MIN = 5;
+const NOTIFY_EVERY_MIN = Number(process.env.WATCH_NOTIFY_MINUTES || 30);
 const WATCH_QUIET_H = 20;      // at most one email per watch per this many hours
 
 const placeLabel = (r, lang) => (lang === 'he' && r.place_he) || r.place || null;
 
-export async function searchBooks({ text, pos, km, lang }) {
+// How many readers wait for each book (not counting `userId`), and whether `userId` does.
+export async function waitingFor(bookIds, userId) {
+  if (!bookIds.length) return new Map();
+  const rows = await many(
+    `SELECT book_id, count(*) FILTER (WHERE user_id IS DISTINCT FROM $2)::int AS others, bool_or(user_id = $2) AS mine
+       FROM book_watches WHERE book_id = ANY($1) GROUP BY book_id`, [bookIds, userId ?? null]);
+  return new Map(rows.map((r) => [r.book_id, { others: r.others, mine: !!r.mine }]));
+}
+
+export async function searchBooks({ text, pos, km, lang, userId }) {
   // Every parameter is referenced in every variant (Postgres must know their types).
   const where = 'AND ($4::int IS NULL OR ST_DWithin(l.geom, ST_MakePoint($3::float8, $2::float8)::geography, $4 * 1000))';
   const params = [text || null, pos?.lat ?? null, pos?.lon ?? null, km ?? null, TAKEN_DAYS];
@@ -58,7 +67,8 @@ export async function searchBooks({ text, pos, km, lang }) {
   const details = top.length ? await many(
     'SELECT id, title, authors, year, cover_url FROM books WHERE id = ANY($1)', [top.map((b) => b.id)]) : [];
   const byId = new Map(details.map((d) => [d.id, d]));
-  return top.map(({ score, nearest, ...b }) => ({ ...byId.get(b.id), ...b, places: b.places.slice(0, 8) }));
+  const waiting = await waitingFor(top.map((b) => b.id), userId);
+  return top.map(({ score, nearest, ...b }) => ({ ...byId.get(b.id), ...b, places: b.places.slice(0, 8), waiting: waiting.get(b.id) ?? null }));
 }
 
 export default async function finderRoutes(app) {
@@ -70,7 +80,7 @@ export default async function finderRoutes(app) {
     const km = KM_CHOICES.includes(Number(req.query.km)) ? Number(req.query.km) : null;
     if (!text && !(pos && km)) return reply.code(400).send({ error: 'query_required' });
     if (text && text.length < 2) return { books: [] };
-    return { books: await searchBooks({ text, pos, km, lang: req.query.lang === 'en' ? 'en' : 'he' }) };
+    return { books: await searchBooks({ text, pos, km, lang: req.query.lang === 'en' ? 'en' : 'he', userId: req.user?.id }) };
   });
 
   // Towns with libraries, for "search around a town" when the reader does not share a location.

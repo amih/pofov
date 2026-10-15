@@ -93,7 +93,8 @@ export default async function searchView(root, _, query) {
           <a href="/l/${w.code}">${esc(w.name || t('free_library'))}</a>${w.place ? ` · ${esc(w.place)}` : ''}${
             w.distance_m != null ? ` · ${t('find.away', { km: (w.distance_m / 1000).toFixed(w.distance_m < 10000 ? 1 : 0) })}` : ''}
           — ${w.present ? `<b>${t('find.present')}</b>` : t('find.taken', { when: timeAgo(w.at) })}</li>`).join('')}</ul>
-        <button class="link" data-watch="${i}">${t('watch.button')}</button>
+        ${b.waiting?.others ? `<span class="waiting">👥 ${t('watch.waiting', { n: b.waiting.others, mine: b.waiting.mine })}</span>` : ''}
+        <button class="link" data-watch="${i}">${t(b.waiting?.mine ? 'watch.on' : 'watch.button')}</button>
       </div>
     </li>`).join('')}</ul>`;
   out.onclick = (e) => {
