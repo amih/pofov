@@ -50,16 +50,45 @@ async function fromGoogleBooks(isbn) {
 const DC = 'http://purl.org/dc/elements/1.1/';
 const dc = (item, k) => (item[DC + k] ?? []).map((v) => v['@value']).filter(Boolean);
 
+// The API answers 502 to bursts: space calls out and retry a couple of times.
+let nliChain = Promise.resolve();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function nliFetch(url) {
+  const job = nliChain.then(async () => {
+    for (const wait of [0, 2000, 6000]) {
+      if (wait) await sleep(wait);
+      const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(10_000) }).catch(() => null);
+      if (res?.ok) return res.json();
+      if (res && res.status < 500 && res.status !== 429) return null;
+    }
+    return null;
+  });
+  nliChain = job.then(() => sleep(1500), () => sleep(1500));
+  return job;
+}
+
+// "עוז, עמוס, 1939-2018 מחבר$$Q…" → "עמוס עוז"
+function nliAuthor(a) {
+  const name = a.replace(/\$\$.*$/, '').replace(/[,.]?\s*\d{4}-(\d{4})?\.?/, '')
+    .replace(/\s+(מחבר|מחברת|author|editor|עורך|עורכת)\.?\s*$/i, '').replace(/[.,\s]+$/, '').trim();
+  const [last, first, ...rest] = name.split(/,\s*/);
+  return first && !rest.length ? `${first} ${last}` : name;
+}
+
 async function nliSearch(query) {
   if (!config.nliApiKey) return [];
   const url = `https://api.nli.org.il/openlibrary/search?api_key=${encodeURIComponent(config.nliApiKey)}`
     + `&query=${encodeURIComponent(query)}&material_type=books&output_format=json&limit=10`;
-  const data = await getJson(url);
-  return (Array.isArray(data) ? data : []).map((item) => {
+  const data = await nliFetch(url);
+  // material_type is not enforced: drop photos, recordings, videos, theses.
+  return (Array.isArray(data) ? data : []).filter((item) => dc(item, 'type').includes('book')).map((item) => {
     const isbn = dc(item, 'identifier').map((x) => normalizeIsbn(x.replace(/\(.*\)/, ''))).find(Boolean) ?? null;
+    // "Title : subtitle / Author ; translator." → title "Title : subtitle", bare "Title"
+    const title = dc(item, 'title')[0]?.split(' / ')[0].replace(/[\s.:/]+$/, '');
     return {
-      title: dc(item, 'title')[0]?.replace(/\s*[/:]\s*$/, ''),
-      authors: dc(item, 'creator').map((a) => a.replace(/\s*\$\$.*$/, '').replace(/,?\s*\d{4}-(\d{4})?\.?$/, '').trim()),
+      title,
+      bare: title?.split(' : ')[0],
+      authors: dc(item, 'creator').map(nliAuthor).filter(Boolean),
       publisher: dc(item, 'publisher')[0] ?? null,
       year: Number(String(dc(item, 'date')[0] ?? dc(item, 'non_standard_date')[0] ?? '').match(/\d{4}/)?.[0]) || null,
       language: dc(item, 'language')[0] ?? null,
@@ -185,7 +214,7 @@ async function searchTitle(title, author) {
   // Hebrew titles: the National Library has nearly every Israeli book.
   if (isHebrew(title)) {
     try {
-      for (const b of await nliSearch(`title,contains,${title}`)) candidates.push({ ...b, bare: b.title });
+      candidates.push(...await nliSearch(`title,contains,${title}`));
     } catch { /* fall through to Google Books */ }
   }
   const q = [`intitle:${title}`, author && `inauthor:${author}`].filter(Boolean).join(' ');
@@ -213,10 +242,24 @@ async function searchTitle(title, author) {
   return { book: best ? await saveCandidate(best, title) : null };
 }
 
+// Dice on letter pairs: tolerates spelling variants, so only counts when very close.
+function charSimilarity(a, b) {
+  const pairs = (s) => { const t = normTitle(s).replace(/ /g, ''), m = new Map(); for (let i = 0; i < t.length - 1; i++) m.set(t.slice(i, i + 2), (m.get(t.slice(i, i + 2)) ?? 0) + 1); return m; };
+  const A = pairs(a), B = pairs(b);
+  let n = 0, na = 0, nb = 0;
+  for (const v of B.values()) nb += v;
+  for (const [k, v] of A) { na += v; n += Math.min(v, B.get(k) ?? 0); }
+  return na && nb ? (2 * n) / (na + nb) : 0;
+}
+
 function pickBest(candidates, title, author) {
   let best = null, bestScore = 0;
   for (const c of candidates) {
-    let score = Math.max(similarity(title, c.title), similarity(title, c.bare), c.alt ? containment(title, c.alt) : 0);
+    const chars = Math.max(charSimilarity(title, c.title), charSimilarity(title, c.bare));
+    let score = Math.max(similarity(title, c.title), similarity(title, c.bare), c.alt ? containment(title, c.alt) : 0,
+      chars >= 0.9 ? chars * 0.8 : 0);
+    // Prefer records in the script we read (the Hebrew edition over translations).
+    if (isHebrew(title) !== isHebrew(c.title)) score *= 0.9;
     if (author && c.authors.length) score = score * 0.75 + 0.25 * Math.max(...c.authors.map((a) => similarity(author, a)));
     if (score > bestScore) { best = c; bestScore = score; }
   }
