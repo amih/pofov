@@ -299,7 +299,7 @@ async function searchTitle(title, author) {
     } catch { /* fall through to Google Books */ }
   }
   const q = [`intitle:${title}`, author && `inauthor:${author}`].filter(Boolean).join(' ');
-  try {
+  if (!pickBest(candidates, title, author)) try {
     const gb = await track('googlebooks', () => getJson(gbUrl(`maxResults=5&q=${encodeURIComponent(q)}`)), (r) => r?.items?.length ?? 0);
     for (const item of gb?.items ?? []) {
       const v = item.volumeInfo;
