@@ -3,9 +3,9 @@ services:
     image: postgis/postgis:16-3.4-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: pofov
-      POSTGRES_USER: pofov
-      POSTGRES_PASSWORD: ${PGPASSWORD:-pofov}
+      POSTGRES_DB: seferehov
+      POSTGRES_USER: seferehov
+      POSTGRES_PASSWORD: ${PGPASSWORD:-seferehov}
     ports:
       - "127.0.0.1:${PGPORT:-5470}:5432"
     volumes:

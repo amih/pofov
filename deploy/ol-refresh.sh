@@ -4,9 +4,9 @@
 set -euo pipefail
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DATA="${1:-$HOME/seferehov-data/ol}"
-DB_CONTAINER="${DB_CONTAINER:-pofov-db-1}"
+DB_CONTAINER="${DB_CONTAINER:-seferehov-db-1}"
 mkdir -p "$DATA" && cd "$DATA"
-psql() { docker exec -i "$DB_CONTAINER" psql -U pofov -d pofov -v ON_ERROR_STOP=1 "$@"; }
+psql() { docker exec -i "$DB_CONTAINER" psql -U seferehov -d seferehov -v ON_ERROR_STOP=1 "$@"; }
 
 url=$(curl -sIL https://openlibrary.org/data/ol_dump_editions_latest.txt.gz | grep -i '^location' | tail -1 | tr -d '\r' | cut -d' ' -f2)
 editions=$(basename "$url"); authors=${editions/editions/authors}

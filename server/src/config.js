@@ -6,7 +6,7 @@ export const config = {
   port: Number(env.PORT || 3870),
   host: env.HOST || '127.0.0.1',
   baseUrl: (env.BASE_URL || 'http://localhost:5173').replace(/\/$/, ''),
-  databaseUrl: env.DATABASE_URL || 'postgres://pofov:pofov@127.0.0.1:5470/pofov',
+  databaseUrl: env.DATABASE_URL || 'postgres://seferehov:seferehov@127.0.0.1:5470/seferehov',
   uploadDir: resolve(env.UPLOAD_DIR || './uploads'),
   webDist: resolve(env.WEB_DIST || '../web/dist'),
   adminEmails: (env.ADMIN_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
