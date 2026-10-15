@@ -25,6 +25,7 @@ export default async function locationView(root, [code]) {
     ${l.description ? `<p class="desc">${esc(l.description)}</p>` : ''}
     <p class="muted">${l.last_checked_at ? t('loc.checked', { when: timeAgo(l.last_checked_at) }) : t('loc.not_checked')}
       · ${t('loc.code')} <strong dir="ltr">${l.code}</strong>${l.source === 'osm' ? ` · ${t('loc.from_osm_html', { url: l.osm })}` : ''}</p>
+    ${l.place ? `<p><a href="/p/${l.place.id}-${l.place.slug}">${esc(t('seo.place_h1', { inPlace: t('seo.in', (lang() === 'he' && l.place.name_he) || l.place.name) }))}</a></p>` : ''}
     <div class="actions">
       <a class="btn primary" href="/l/${l.code}/add">${t('loc.add_books')}</a>
       <button class="btn" id="check">${t('loc.still_here')}</button>

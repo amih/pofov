@@ -33,12 +33,14 @@ function savedView() {
   try { return JSON.parse(localStorage.getItem(VIEW_KEY)) || null; } catch { return null; }
 }
 
-export default function mapView(root) {
+export default function mapView(root, _, query) {
   root.innerHTML = `
     <div id="map"></div>
     <button class="fab-locate" title="${t('map.locate')}" aria-label="${t('map.locate')}">◎</button>
     <a class="fab-add" href="/add">${t('map.add')}</a>`;
-  const start = savedView();
+  // /?at=lat,lon,zoom — links from the place pages
+  const at = (query?.get('at') ?? '').split(',').map(Number);
+  const start = at.length === 3 && at.every(Number.isFinite) ? { lat: at[0], lon: at[1], zoom: at[2] } : savedView();
   const map = L.map('map', { zoomControl: false, maxZoom: 19 });
   if (start) map.setView([start.lat, start.lon], start.zoom);
   else map.fitBounds(ISRAEL);

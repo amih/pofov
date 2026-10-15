@@ -295,6 +295,36 @@ const he = {
   'top.all': 'כל הזמנים',
   'top.legend': 'נקודות: ספרייה חדשה 10 · שינוי בספרייה 3 · ספר על המדף או שהושאר 2 · ספר שנלקח או חסר 1 · בדיקת ספרייה 1 · אישור דיווחים 1.',
   'top.none': 'עדיין אין נקודות בתקופה הזו.',
+  // Server-rendered pages for search engines (server/src/seo.js) and the place pages.
+  'seo.home_title': 'ספרחוב — ספריות רחוב וספרים חינם לידך',
+  'seo.home_desc': 'ספרחוב (ספר רחוב) היא מפה חינמית של ספריות רחוב, ארונות ספרים ומדפי החלפת ספרים בישראל ובעולם — ושל הספרים שנמצאים בהם עכשיו. מחפשים ספר? אולי הוא מחכה לך על מדף ברחוב.',
+  'seo.home_h1': 'ספרחוב — ספריות רחוב לידך',
+  'seo.home_lead': 'ספרחוב (ספר רחוב, Seferehov) היא מפה חינמית של ספריות רחוב: ארונות ספרים ברחוב, מדפי החלפת ספרים בגינה ובלובי של בניין, תיבות ספרים בתחנות אוטובוס. רואים איפה יש ספריית רחוב קרובה, אילו ספרים יש בה עכשיו, ומחפשים ספר נדיר על מדף ציבורי.',
+  'seo.israel': 'ספריות רחוב בישראל לפי עיר',
+  'seo.world': 'ספריות רחוב בעולם',
+  'seo.all_countries': 'כל המדינות',
+  'seo.places_title': 'ספריות רחוב בעולם לפי מדינה | ספרחוב',
+  'seo.places_h1': 'ספריות רחוב בעולם',
+  'seo.places_lead': ({ n, countries }) => `${n.toLocaleString('he')} ספריות רחוב ומדפי ספרים ציבוריים ב־${countries} מדינות.`,
+  'seo.country_title': ({ inCountry }) => `ספריות רחוב ${inCountry} לפי עיר | ספרחוב`,
+  'seo.country_h1': ({ inCountry }) => `ספריות רחוב ${inCountry}`,
+  'seo.country_lead': ({ n, places, inCountry }) => `${n.toLocaleString('he')} ספריות רחוב ומדפי ספרים ציבוריים ב־${places} ערים ויישובים ${inCountry}.`,
+  'seo.place_title': ({ inPlace }) => `ספריות רחוב ${inPlace} — מפה וספרים חינם | ספרחוב`,
+  'seo.place_h1': ({ inPlace }) => `ספריות רחוב ${inPlace}`,
+  'seo.place_lead': ({ n, books, inPlace }) => `${inPlace} יש ${n === 1 ? 'ספריית רחוב אחת' : `${n} ספריות רחוב ומדפי ספרים ציבוריים`} במפה${books ? `, ועליהם ${books} ספרים שדווחו` : ''}. המדפים פתוחים לכולם.`,
+  'seo.place_desc': ({ n, inPlace }) => `${n} ספריות רחוב ומדפי החלפת ספרים ${inPlace}: מיקום במפה, ואילו ספרים יש בהם עכשיו.`,
+  'seo.libraries': 'ספריות רחוב',
+  'seo.books_now': ({ inPlace }) => `ספרים על המדפים ${inPlace} עכשיו`,
+  'seo.nearby': 'ספריות רחוב בערים קרובות',
+  'seo.nearby_libs': 'ספריות רחוב קרובות',
+  'seo.lib_title': ({ name, inPlace }) => `${name} — ספריית רחוב ${inPlace} | ספרחוב`,
+  'seo.lib_desc': ({ inPlace, books }) => `ספריית רחוב חינמית ${inPlace}${books ? ` עם ${books} ספרים שדווחו` : ''}: מיקום, ניווט ואילו ספרים יש על המדף עכשיו.`,
+  'seo.lib_lead': ({ inPlace, country }) => `מדף ספרים ציבורי ${inPlace}${country ? `, ${country}` : ''}. פתוח לכולם.`,
+  'seo.n_books': ({ n }) => (n === 1 ? 'ספר אחד' : `${n} ספרים`),
+  'seo.n_libs': ({ n }) => (n === 1 ? 'ספרייה אחת' : `${n} ספריות`),
+  'seo.updated': ({ date }) => `עודכן ${date}`,
+  'seo.open_map': 'פתיחה במפה',
+  'seo.in': (name) => (/^[֐-׿]/.test(name) ? `ב${name}` : `ב־${name}`),
 };
 
 const en = {
@@ -589,6 +619,35 @@ const en = {
   'top.all': 'All time',
   'top.legend': 'Points: new library 10 · library change 3 · book on a shelf or left 2 · book taken or missing 1 · checking a library 1 · reviewing 1.',
   'top.none': 'No points yet in this period.',
+  'seo.home_title': 'Seferehov — free street libraries and free books near you',
+  'seo.home_desc': 'Seferehov is a free map of street libraries, little free libraries and book exchange shelves in Israel and around the world — and the books on them right now. Looking for a book? It may be waiting on a shelf down the street.',
+  'seo.home_h1': 'Seferehov — street libraries near you',
+  'seo.home_lead': 'Seferehov (Hebrew for “street books”) is a free map of street libraries: little free libraries, public bookcases, book exchange shelves in parks and building lobbies. See where the nearest one is, which books are on it now, and look for a rare book on a public shelf.',
+  'seo.israel': 'Street libraries in Israel by city',
+  'seo.world': 'Street libraries around the world',
+  'seo.all_countries': 'All countries',
+  'seo.places_title': 'Street libraries around the world by country | Seferehov',
+  'seo.places_h1': 'Street libraries around the world',
+  'seo.places_lead': ({ n, countries }) => `${n.toLocaleString('en')} street libraries and public book shelves in ${countries} countries.`,
+  'seo.country_title': ({ inCountry }) => `Street libraries ${inCountry} by city | Seferehov`,
+  'seo.country_h1': ({ inCountry }) => `Street libraries ${inCountry}`,
+  'seo.country_lead': ({ n, places, inCountry }) => `${n.toLocaleString('en')} street libraries and public book shelves in ${places} towns and cities ${inCountry}.`,
+  'seo.place_title': ({ inPlace }) => `Street libraries ${inPlace} — map and free books | Seferehov`,
+  'seo.place_h1': ({ inPlace }) => `Street libraries ${inPlace}`,
+  'seo.place_lead': ({ n, books, inPlace }) => `There ${n === 1 ? 'is one street library' : `are ${n} street libraries and public book shelves`} ${inPlace} on the map${books ? `, with ${books} books reported on them` : ''}. The shelves are open to everyone.`,
+  'seo.place_desc': ({ n, inPlace }) => `${n} street libraries and book exchange shelves ${inPlace}: where they are, and which books are on them now.`,
+  'seo.libraries': 'Street libraries',
+  'seo.books_now': ({ inPlace }) => `Books on the shelves ${inPlace} now`,
+  'seo.nearby': 'Street libraries in nearby towns',
+  'seo.nearby_libs': 'Nearby street libraries',
+  'seo.lib_title': ({ name, inPlace }) => `${name} — street library ${inPlace} | Seferehov`,
+  'seo.lib_desc': ({ inPlace, books }) => `Free street library ${inPlace}${books ? ` with ${books} books reported` : ''}: location, directions and the books on the shelf now.`,
+  'seo.lib_lead': ({ inPlace, country }) => `A public book shelf ${inPlace}${country ? `, ${country}` : ''}. Open to everyone.`,
+  'seo.n_books': ({ n }) => (n === 1 ? '1 book' : `${n} books`),
+  'seo.n_libs': ({ n }) => (n === 1 ? '1 library' : `${n} libraries`),
+  'seo.updated': ({ date }) => `Updated ${date}`,
+  'seo.open_map': 'Open on the map',
+  'seo.in': (name) => `in ${name}`,
 };
 
 const DICT = { he, en };
@@ -597,7 +656,16 @@ function stored() {
   try { return localStorage.getItem(KEY); } catch { return null; }
 }
 
-let current = LANGS.includes(stored()) ? stored() : 'he';
+// ?lang=en in a link (search results use it) wins over the saved choice, and is saved.
+function fromUrl() {
+  try {
+    const l = new URLSearchParams(location.search).get('lang');
+    if (LANGS.includes(l)) { localStorage.setItem(KEY, l); return l; }
+  } catch {}
+  return null;
+}
+
+let current = fromUrl() ?? (LANGS.includes(stored()) ? stored() : 'he');
 
 export const lang = () => current;
 export const isRtl = () => current === 'he';
@@ -619,6 +687,12 @@ export function setLang(next) {
   try { localStorage.setItem(KEY, next); } catch {}
   applyLang();
   document.dispatchEvent(new Event('seferehov:lang'));
+}
+
+// For the server (seo.js): one string in a given language, without touching `current`.
+export function translate(lng, key, vars = {}) {
+  const v = (DICT[lng] ?? he)[key] ?? en[key] ?? key;
+  return typeof v === 'function' ? v(vars) : v;
 }
 
 export const toggleLang = () => setLang(current === 'he' ? 'en' : 'he');

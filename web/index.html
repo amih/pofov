@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <script>try { if (localStorage.getItem('seferehov:lang') === 'en') { document.documentElement.lang = 'en'; document.documentElement.dir = 'ltr'; } } catch {}</script>
+  <script>try { if ((new URLSearchParams(location.search).get('lang') || localStorage.getItem('seferehov:lang')) === 'en') { document.documentElement.lang = 'en'; document.documentElement.dir = 'ltr'; } } catch {}</script>
   <title>ספרחוב — ספריות רחוב לידך</title>
   <meta name="description" content="מפה משותפת של ספריות רחוב בישראל: מוצאים ארון ספרים קרוב, רואים אילו ספרים יש בו, ומוסיפים את מה שמצאתם. Free street libraries near you.">
   <meta name="theme-color" content="#9a5b2e">

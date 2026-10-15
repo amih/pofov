@@ -17,6 +17,7 @@ import reviewView from './views/review.js';
 import aboutView from './views/about.js';
 import scanView from './views/scan.js';
 import editLocationView from './views/edit-location.js';
+import pageView from './views/page.js';
 
 const routes = [
   [/^\/$/, mapView],
@@ -30,6 +31,7 @@ const routes = [
   [/^\/top$/, topView],
   [/^\/review$/, reviewView],
   [/^\/about$/, aboutView],
+  [/^\/(places|c\/[a-z]{2}|p\/\d+(-[a-z0-9-]*)?)$/i, pageView],
 ];
 
 const main = document.getElementById('view');

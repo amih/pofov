@@ -113,6 +113,7 @@ export default async function locationRoutes(app) {
         osm: loc.osm_id ? `https://www.openstreetmap.org/${loc.osm_type}/${loc.osm_id}` : null,
         last_checked_at: loc.last_checked_at, created_at: loc.created_at,
         photo: photoUrls(photo),
+        place: loc.place_id ? await one('SELECT id, slug, name, name_he FROM places WHERE id = $1', [loc.place_id]) : null,
       },
       books, activity, my_pending: pending.n, my_pending_edits: pending.edits, my_scans: scans,
     };

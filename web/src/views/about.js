@@ -14,6 +14,7 @@ export default function aboutView(root) {
     </ul>
     <h2>${t('shelves.title')}</h2>
     <p>${t('shelves.note_html')}</p>
+    <p><a href="/places">${t('seo.places_h1')}</a> · <a href="/c/il">${t('seo.israel')}</a></p>
     <h2>${t('how.title')}</h2>
     <p>${t('how.body_html')}</p>
     <h2>${t('who.title')}</h2>

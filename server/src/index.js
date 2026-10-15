@@ -13,6 +13,7 @@ import signRoutes from './sign.js';
 import editRoutes from './edits.js';
 import scanRoutes, { startScanWorker } from './scans.js';
 import { startAdminNotifier } from './notify.js';
+import seoRoutes, { renderShell } from './seo.js';
 
 const app = Fastify({ logger: true, trustProxy: '127.0.0.1', bodyLimit: 1024 * 1024 });
 
@@ -43,28 +44,33 @@ await app.register(reviewRoutes);
 await app.register(signRoutes);
 await app.register(editRoutes);
 await app.register(scanRoutes);
+await app.register(seoRoutes);
 
 app.get('/api/health', async () => ({ ok: true, web: deployed?.version ?? null }));
 
-// In production nginx serves /uploads and the web build (see deploy/nginx.conf).
-// SERVE_WEB=1 makes this process do it instead, with the same cache rules.
+// In production nginx serves /uploads and the files of the web build, and sends every
+// other page here (see deploy/nginx.conf). SERVE_WEB=1 makes this process serve the files too.
 await app.register(fastifyStatic, { root: config.uploadDir, prefix: '/uploads/', decorateReply: false });
 if (process.env.SERVE_WEB === '1') {
   await app.register(fastifyStatic, {
     root: config.webDist,
     prefix: '/',
+    index: false,
+    wildcard: false,
     cacheControl: false,
     setHeaders(reply, path) {
       reply.header('Cache-Control', path.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache');
     },
   });
-  app.setNotFoundHandler((req, reply) => {
-    if (!['GET', 'HEAD'].includes(req.method) || req.url.startsWith('/api/') || req.url.startsWith('/uploads/')) {
-      return reply.code(404).send({ error: 'not_found' });
-    }
-    reply.header('Cache-Control', 'no-cache').sendFile('index.html');
-  });
 }
+// Any other page: the app shell, with search-engine content for the pages that have it.
+app.setNotFoundHandler(async (req, reply) => {
+  if (!['GET', 'HEAD'].includes(req.method) || req.url.startsWith('/api/') || req.url.startsWith('/uploads/')) {
+    return reply.code(404).send({ error: 'not_found' });
+  }
+  const { status, html } = await renderShell(req);
+  return reply.code(status).header('Cache-Control', 'no-cache').type('text/html; charset=utf-8').send(html);
+});
 
 await app.listen({ port: config.port, host: config.host });
 startScanWorker(app.log);
