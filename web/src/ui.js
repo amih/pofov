@@ -88,7 +88,7 @@ export function avatarHtml({ avatar, screen_name, name }, size = 32) {
 }
 
 // "Nothing is required" box; hidden for good once dismissed.
-const NOTE_KEY = 'pofov:nostrings';
+const NOTE_KEY = 'seferehov:nostrings';
 export function noStringsNote() {
   try { if (localStorage.getItem(NOTE_KEY)) return ''; } catch { /* show it */ }
   return `<div class="card nostrings"><strong>${t('how.title')}</strong><p>${t('how.body_html')}</p>

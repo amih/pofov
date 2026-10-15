@@ -1,6 +1,6 @@
 # ספרחוב · Seferehov
 
-A shared map of free street libraries and the books on their shelves. Runs at pofov.com.
+Runs at **https://seferehov.com** (the old address pofov.com redirects there).
 
 A shared map of free street libraries (book boxes, little free libraries, shelves in lobbies and parks) and the books on their shelves right now. Installable as an app on any phone (PWA).
 
@@ -8,7 +8,9 @@ A shared map of free street libraries (book boxes, little free libraries, shelve
 - **Add books**: scan the barcode on the back cover; details come from Open Library / Google Books. Books without a barcode can be typed in.
 - **Photograph the shelf**: a few photos or a short video of the spines/covers. The server picks sharp, distinct video frames (ffmpeg), reads ISBN barcodes (ZXing) and titles (local vision model via Ollama, default `qwen3-vl:8b-instruct`), looks them up, and the user ticks/corrects the list before anything is saved.
 - **Seen, left, taken**: report a book on the shelf, a book you left, or a book you took — all optional.
-- **Local book catalogue**: the Open Library monthly dump (CC0, ~40M editions) is imported into `ol_books` by `deploy/ol-refresh.sh` (systemd timer `deploy/pofov-ol-refresh.*`, 5th of each month), so ISBN and title lookups are local. Web APIs (Open Library, Google Books with `GOOGLE_BOOKS_API_KEY`, National Library of Israel with `NLI_API_KEY`) are fallbacks.
+- **Local book catalogue**: the Open Library monthly dump (CC0, ~40M editions) is imported into `ol_books` by `deploy/ol-refresh.sh` (systemd timer `deploy/seferehov-ol-refresh.*`, 5th of each month), so ISBN and title lookups are local. Web APIs (Open Library, Google Books with `GOOGLE_BOOKS_API_KEY`, National Library of Israel with `NLI_API_KEY`) are fallbacks.
+- **Search statistics**: every catalogue search is logged in `lookups` (query, which source answered, match score) and every request to a source in `lookup_calls` (hit / miss / error / limited, HTTP status, retries, time). When a user confirms a shelf scan, each item is marked kept / edited / dropped, so you can see which source gives right answers. A source that reports its quota used up is skipped for an hour. Summaries: `SELECT * FROM lookup_source_daily` and `SELECT * FROM lookup_match_quality`.
+- **Private-info check**: library names, hints and notes are checked for door codes, phone numbers and e-mails (patterns + the local model) before they are published.
 - **Library changes**: anyone can suggest a new name, hint, photo, position or "it's gone". With `REVIEW_ALL_LOCATIONS=1` (default) every new library and change waits for a reviewer; admins get an email digest (`NOTIFY_ADMIN_MINUTES`).
 - **Books come and go**: the app stores *sightings* (seen / taken / not there), so every shelf shows what was last seen and when.
 - **Points and trust**: every approved report earns points. New users' reports go to a review queue; after a few approved ones they publish directly. Reports from far away from the library always go to review.
@@ -34,6 +36,16 @@ npm run seed:osm -- 29.4,34.2,33.4,35.9   # bbox south,west,north,east; omit for
 npm run dev:server            # API on :3870 (sign-in links are printed to this log without SMTP)
 npm run dev:web               # app on :5173
 ```
+
+## Production
+
+One home server runs everything: nginx, the API (systemd `seferehov`, port 3870), PostGIS in Docker, Ollama, and the monthly catalogue refresh (`seferehov-ol-refresh.timer`).
+
+- **Deploy**: `deploy/deploy.sh` — refuses a dirty tree, builds, rsyncs to `APP_DIR` on the server (from gitignored `deploy/target.private`: `SSH=user@host APP_DIR=/path`), runs migrations, restarts `seferehov`.
+- **First install**: copy `deploy/seferehov.service` and `deploy/seferehov-ol-refresh.{service,timer}` to `/etc/systemd/system/` (replace `APP_USER`/`APP_DIR`), and `deploy/nginx.conf` to `/etc/nginx/sites-available/` (replace `HOST`, `OLD_HOST`, `APP_DIR`).
+- **Old address**: the nginx template sends `OLD_HOST` to `HOST` with a 301, except `/sw.js`, which serves `deploy/old-domain-sw.js`: installed copies of the app replace their service worker with it and move to the new address.
+- **Server `.env`**: `BASE_URL=https://seferehov.com`, SMTP (`noreply@seferehov.com`), Google sign-in, `NLI_API_KEY`, `ADMIN_EMAILS`. Google sign-in needs `BASE_URL/api/auth/google/callback` listed as a redirect URI in the Google Cloud console.
+- **Database names**: the Postgres database, user and Docker volume are still called `pofov` (from the app's first name). Keep `COMPOSE_PROJECT_NAME=pofov` in the server `.env`, or Docker Compose would start a new, empty volume.
 
 ## How updates reach installed apps
 

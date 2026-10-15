@@ -3,7 +3,7 @@
 #   deploy/ol-refresh.sh [DATA_DIR]      — needs aria2c, docker (DB container), node
 set -euo pipefail
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DATA="${1:-$HOME/pofov-data/ol}"
+DATA="${1:-$HOME/seferehov-data/ol}"
 DB_CONTAINER="${DB_CONTAINER:-pofov-db-1}"
 mkdir -p "$DATA" && cd "$DATA"
 psql() { docker exec -i "$DB_CONTAINER" psql -U pofov -d pofov -v ON_ERROR_STOP=1 "$@"; }

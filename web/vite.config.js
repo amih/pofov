@@ -13,7 +13,7 @@ const iso = new Date(build * 1000).toISOString();
 const version = `${iso.slice(0, 10).replaceAll('-', '.')}.${iso.slice(11, 19).replaceAll(':', '')}-${sha}`;
 
 const versionFile = {
-  name: 'pofov-version',
+  name: 'seferehov-version',
   generateBundle() {
     this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version, build }) });
   },

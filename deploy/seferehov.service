@@ -1,5 +1,5 @@
 [Unit]
-Description=POFOV API (pofov.com free street libraries)
+Description=Seferehov API (seferehov.com free street libraries)
 After=network-online.target docker.service
 Wants=network-online.target
 

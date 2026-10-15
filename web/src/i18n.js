@@ -1,6 +1,6 @@
 // Hebrew first, English second. Strings are plain text unless the key ends in
 // _html; values passed to _html strings must already be escaped.
-const KEY = 'pofov:lang';
+const KEY = 'seferehov:lang';
 const LANGS = ['he', 'en'];
 
 const he = {
@@ -596,7 +596,7 @@ export function setLang(next) {
   current = next;
   try { localStorage.setItem(KEY, next); } catch {}
   applyLang();
-  document.dispatchEvent(new Event('pofov:lang'));
+  document.dispatchEvent(new Event('seferehov:lang'));
 }
 
 export const toggleLang = () => setLang(current === 'he' ? 'en' : 'he');

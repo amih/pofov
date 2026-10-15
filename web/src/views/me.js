@@ -10,8 +10,8 @@ export default async function meView(root, _, query) {
   if (!me) return navigate('/login', { replace: true });
   const welcome = query.get('welcome');
   const goNext = () => {
-    const next = sessionStorage.getItem('pofov:next');
-    sessionStorage.removeItem('pofov:next');
+    const next = sessionStorage.getItem('seferehov:next');
+    sessionStorage.removeItem('seferehov:next');
     if (next) { navigate(next, { replace: true }); return true; }
     return false;
   };
@@ -57,7 +57,7 @@ export default async function meView(root, _, query) {
     try {
       await api('/api/me', { method: 'POST', json: { screen_name: e.target.screen_name.value } });
       await getMe(true);
-      document.dispatchEvent(new Event('pofov:me'));
+      document.dispatchEvent(new Event('seferehov:me'));
       if (needsName && goNext()) return;
       toast(t('saved'));
       rerender();
@@ -73,20 +73,20 @@ export default async function meView(root, _, query) {
     fd.append('avatar', file);
     try {
       await api('/api/me/avatar', { method: 'POST', form: fd });
-      document.dispatchEvent(new Event('pofov:me'));
+      document.dispatchEvent(new Event('seferehov:me'));
       toast(t('me.pic_updated'));
       rerender();
     } catch { toast(t('me.pic_bad')); }
   });
   root.querySelector('#avatar-reset')?.addEventListener('click', async () => {
     await api('/api/me/avatar', { method: 'DELETE' });
-    document.dispatchEvent(new Event('pofov:me'));
+    document.dispatchEvent(new Event('seferehov:me'));
     rerender();
   });
   root.querySelector('#logout')?.addEventListener('click', async () => {
     await api('/api/auth/logout', { method: 'POST' });
     await getMe(true);
-    document.dispatchEvent(new Event('pofov:me'));
+    document.dispatchEvent(new Event('seferehov:me'));
     navigate('/');
   });
 }

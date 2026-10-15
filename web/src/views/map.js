@@ -7,7 +7,7 @@ import { api } from '../api.js';
 import { esc, getPosition, toast } from '../ui.js';
 import { t, isRtl } from '../i18n.js';
 
-const VIEW_KEY = 'pofov:mapView';
+const VIEW_KEY = 'seferehov:mapView';
 const ISRAEL = [[29.45, 34.25], [33.34, 35.9]]; // first-visit view
 
 const pin = (books, pending) => L.divIcon({

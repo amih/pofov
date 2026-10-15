@@ -130,6 +130,8 @@ export default async function scanRoutes(app) {
     const far = scan.distance_m == null || scan.distance_m > config.maxReportDistanceM;
     const status = loc.status === 'approved' ? initialStatus(req.user, { far }) : 'pending';
 
+    // For the statistics: was each reading/match right? (unticked = dropped)
+    const outcome = new Map(rows.map((r) => [r.id, 'dropped']));
     let n = 0;
     for (const p of picks) {
       const item = byId.get(Number(p.id));
@@ -137,6 +139,7 @@ export default async function scanRoutes(app) {
       const title = String(p.title ?? item.title).trim().slice(0, 300);
       const author = String(p.author ?? item.author ?? '').trim().slice(0, 200);
       const edited = title !== item.title || author !== (item.author ?? '');
+      outcome.set(item.id, edited ? 'edited' : 'kept');
       const book = item.book_id && !edited
         ? await one('SELECT * FROM books WHERE id = $1', [item.book_id])
         : title && await findOrCreateBook({ title, authors: splitAuthors(author), source: 'llm' });
@@ -155,6 +158,8 @@ export default async function scanRoutes(app) {
     }
     if (n && status === 'approved') await q('UPDATE locations SET last_checked_at = now() WHERE id = $1', [scan.location_id]);
     await q(`UPDATE scans SET status = 'confirmed' WHERE id = $1`, [scan.id]);
+    await q(`UPDATE scan_items i SET outcome = o.v FROM unnest($1::bigint[], $2::text[]) AS o(id, v) WHERE i.id = o.id`,
+      [[...outcome.keys()], [...outcome.values()]]);
     return { added: n, status };
   });
 }
@@ -302,10 +307,14 @@ async function processScan(scan) {
   const seenBooks = new Set();
   const rows = [];
   for (const item of found) {
-    let book = null;
+    let book = null, lookupId = null;
     const isbn = item.isbn;
-    if (isbn) book = (await lookupIsbn(isbn).catch(() => ({}))).book ?? null;
-    if (!book && item.title) book = (await lookupTitle(item.title, item.author).catch(() => ({}))).book ?? null;
+    if (isbn) ({ book = null, lookupId = null } = await lookupIsbn(isbn, 'scan').catch(() => ({})));
+    if (!book && item.title) {
+      const r = await lookupTitle(item.title, item.author, 'scan').catch(() => ({}));
+      book = r.book ?? null;
+      lookupId = r.lookupId ?? lookupId;
+    }
     await setProgress(scan.id, { step: 'matching', done: ++done, total: found.length });
     if (book && seenBooks.has(book.id)) continue; // the barcode and the spine of the same book
     if (book) seenBooks.add(book.id);
@@ -314,16 +323,16 @@ async function processScan(scan) {
     if (!book && item.via === 'vision' && item.fromVideo && item.frames.size < 2) continue;
     const title = item.title || book?.title || (isbn && `ISBN ${isbn}`);
     const quality = book ? 'high' : item.quality === 'low' ? 'low' : 'medium';
-    if (title) rows.push({ item, book, title, isbn, quality });
+    if (title) rows.push({ item, book, title, isbn, quality, lookupId });
   }
   const rank = { high: 0, medium: 1, low: 2 };
   rows.sort((a, b) => rank[a.quality] - rank[b.quality]); // surest first
-  for (const [n, { item, book, title, isbn, quality }] of rows.entries()) {
+  for (const [n, { item, book, title, isbn, quality, lookupId }] of rows.entries()) {
     const crop = item.crop ? await saveCropThumb(item.crop, scan.id, n) : null;
     await q(
-      `INSERT INTO scan_items(scan_id, title, author, isbn13, book_id, via, matched, frame_path, quality, crop_path)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [scan.id, title, item.author ?? book?.authors?.[0] ?? null, book?.isbn13 ?? isbn ?? null, book?.id ?? null, item.via, !!book, item.frame, quality, crop],
+      `INSERT INTO scan_items(scan_id, title, author, isbn13, book_id, via, matched, frame_path, quality, crop_path, lookup_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [scan.id, title, item.author ?? book?.authors?.[0] ?? null, book?.isbn13 ?? isbn ?? null, book?.id ?? null, item.via, !!book, item.frame, quality, crop, lookupId],
     );
   }
 }

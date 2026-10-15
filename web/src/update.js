@@ -14,9 +14,9 @@ let reg = null;
 let waiting = false;
 
 export function initUpdates() {
-  const prev = sessionStorage.getItem('pofov:updatedFrom');
+  const prev = sessionStorage.getItem('seferehov:updatedFrom');
   if (prev) {
-    sessionStorage.removeItem('pofov:updatedFrom');
+    sessionStorage.removeItem('seferehov:updatedFrom');
     if (prev !== __APP_VERSION__) toast(t('updated', { v: __APP_VERSION__ }));
   }
   if (!('serviceWorker' in navigator) || import.meta.env.DEV) return;
@@ -27,7 +27,7 @@ export function initUpdates() {
   let hadController = !!sw.controller;
   sw.addEventListener('controllerchange', () => {
     if (!hadController) { hadController = true; return; }
-    sessionStorage.setItem('pofov:updatedFrom', __APP_VERSION__);
+    sessionStorage.setItem('seferehov:updatedFrom', __APP_VERSION__);
     location.reload();
   });
 
@@ -73,6 +73,6 @@ export const isUpdateWaiting = () => waiting;
 export async function hardReset() {
   for (const r of await navigator.serviceWorker?.getRegistrations() ?? []) await r.unregister();
   for (const k of await caches.keys()) await caches.delete(k);
-  sessionStorage.setItem('pofov:updatedFrom', 'reset');
+  sessionStorage.setItem('seferehov:updatedFrom', 'reset');
   location.reload();
 }

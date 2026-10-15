@@ -20,5 +20,5 @@ rsync -az web/dist/assets/ "$SSH:$APP_DIR/web/dist/assets/"
 rsync -az --delete --exclude assets web/dist/ "$SSH:$APP_DIR/web/dist/"
 
 ssh "$SSH" "cd $APP_DIR && npm ci --omit=dev -w server --include-workspace-root=false >/dev/null \
-  && (cd server && node --env-file=../.env src/migrate.js) && sudo systemctl restart pofov"
+  && (cd server && node --env-file=../.env src/migrate.js) && sudo systemctl restart seferehov"
 echo "Deployed $(cat web/dist/version.json)"

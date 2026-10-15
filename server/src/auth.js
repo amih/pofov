@@ -6,8 +6,8 @@ import { authUrl, exchangeCode } from './google.js';
 import { readForm } from './multipart.js';
 import { saveAvatar, fetchGoogleAvatar, removeUpload, avatarUrl } from './photos.js';
 
-const SESSION_COOKIE = 'pofov_session';
-const STATE_COOKIE = 'pofov_oauth_state';
+const SESSION_COOKIE = 'seferehov_session';
+const STATE_COOKIE = 'seferehov_oauth_state';
 const SESSION_DAYS = 180;
 const LOGIN_TOKEN_MINUTES = 20;
 const googleEnabled = () => Boolean(config.google.clientId && config.google.clientSecret);

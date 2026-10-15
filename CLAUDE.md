@@ -1,6 +1,6 @@
 # ספרחוב (Seferehov)
 
-- App name: ספרחוב in Hebrew, Seferehov in English. pofov.com is only the domain; never call the app POFOV.
+- App name: ספרחוב in Hebrew, Seferehov in English. Production is https://seferehov.com; pofov.com only redirects there. Never call the app POFOV. The Postgres db/user/volume are still named `pofov` — don't rename them.
 
 - Never bump versions by hand: the build derives the version from time + git sha. Commit before deploying (`deploy/deploy.sh` refuses a dirty tree).
 - Real hostnames, IPs, and SSH targets go only in gitignored `*.private` / `*.private.md` files (this repo is public).

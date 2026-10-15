@@ -1,14 +1,88 @@
-import { one, many } from './db.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
+import { one, many, q } from './db.js';
 import { normalizeIsbn } from './util.js';
 import { normTitle } from './vision.js';
 import { config } from './config.js';
 
-const UA = 'Seferehov/0.1 (https://pofov.com)';
+const UA = 'Seferehov/0.1 (https://seferehov.com)';
+
+// --- Statistics: every search goes to table lookups, every request to a source to
+// lookup_calls (see db/migrations/007_lookup_stats.sql). Never breaks a lookup.
+const lookupCtx = new AsyncLocalStorage(); // { id, calls } of the search in progress
+const callCtx = new AsyncLocalStorage();   // what happened to the source request in progress
+
+function noteResponse(res, limited = false) {
+  const c = callCtx.getStore();
+  if (!c) return;
+  c.attempts++;
+  c.status = res?.status ?? null;
+  c.limited = limited || res?.status === 429;
+  c.error = !res ? 'network error' : !res.ok && !c.limited ? `HTTP ${res.status}` : null;
+}
+
+// A source that reports its quota used up is left alone for an hour.
+const pausedUntil = {};
+const PAUSE_MS = 60 * 60_000;
+
+// Times one request to a source and notes how it went. count() says how many
+// records came back. Returns null without asking when the source is paused.
+async function track(source, fn, count = (r) => (Array.isArray(r) ? r.length : r ? 1 : 0)) {
+  if (pausedUntil[source] > Date.now()) return null;
+  const c = { attempts: 0 };
+  const t0 = Date.now();
+  let res, err;
+  try { res = await callCtx.run(c, fn); } catch (e) { err = e; }
+  if (c.skipped) return res;
+  const results = err ? 0 : count(res);
+  const call = {
+    source, results, ms: Date.now() - t0, http_status: c.status ?? null, attempts: Math.max(c.attempts, 1),
+    outcome: c.limited ? 'limited' : err || c.error ? 'error' : results ? 'hit' : 'miss',
+    error: (err?.message ?? c.error ?? null)?.slice(0, 300) ?? null,
+  };
+  if (call.outcome === 'limited') pausedUntil[source] = Date.now() + PAUSE_MS;
+  const store = lookupCtx.getStore();
+  if (store) store.calls.push(call);
+  else saveCalls(null, [call]);
+  if (err) throw err;
+  return res;
+}
+
+function saveCalls(lookupId, calls) {
+  if (!calls.length) return Promise.resolve();
+  const cols = ['source', 'outcome', 'http_status', 'attempts', 'results', 'ms', 'error'];
+  const vals = [];
+  const rows = calls.map((c) => `($1, ${cols.map((k) => { vals.push(c[k]); return `$${vals.length + 1}`; }).join(', ')})`);
+  return q(`INSERT INTO lookup_calls(lookup_id, ${cols.join(', ')}) VALUES ${rows.join(', ')}`, [lookupId, ...vals])
+    .catch(() => {});
+}
+
+// Runs one search and records it. fn returns { book, source?, score?, ... }.
+async function withLookup(info, fn) {
+  const store = { id: randomUUID(), calls: [] };
+  const t0 = Date.now();
+  const { source, score, ...result } = await lookupCtx.run(store, fn);
+  try {
+    await q(
+      `INSERT INTO lookups(id, kind, query, author, hebrew, context, book_id, source, score, ms)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [store.id, info.kind, info.query, info.author ?? null, info.hebrew, info.context,
+       result.book?.id ?? null, result.book ? source ?? null : null, score ?? null, Date.now() - t0],
+    );
+    await saveCalls(store.id, store.calls);
+  } catch { return result; }
+  return { ...result, lookupId: store.id };
+}
 
 async function getJson(url) {
-  const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(8000) });
-  if (!res.ok) return null;
-  return res.json();
+  const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(8000) }).catch(() => null);
+  // Google answers 429, or 403 with a "quota"/"limit" message, when the quota is used up.
+  if (res?.status === 403) {
+    noteResponse(res, /quota|limit/i.test(await res.text().catch(() => '')));
+    return null;
+  }
+  noteResponse(res);
+  return res?.ok ? res.json() : null;
 }
 
 async function fromOpenLibrary(isbn) {
@@ -58,6 +132,7 @@ function nliFetch(url) {
     for (const wait of [0, 2000, 6000]) {
       if (wait) await sleep(wait);
       const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(10_000) }).catch(() => null);
+      noteResponse(res);
       if (res?.ok) return res.json();
       if (res && res.status < 500 && res.status !== 429) return null;
     }
@@ -76,7 +151,10 @@ function nliAuthor(a) {
 }
 
 async function nliSearch(query) {
-  if (!config.nliApiKey) return [];
+  if (!config.nliApiKey) {
+    if (callCtx.getStore()) callCtx.getStore().skipped = true; // not configured: nothing to record
+    return [];
+  }
   const url = `https://api.nli.org.il/openlibrary/search?api_key=${encodeURIComponent(config.nliApiKey)}`
     + `&query=${encodeURIComponent(query)}&material_type=books&output_format=json&limit=10`;
   const data = await nliFetch(url);
@@ -136,22 +214,23 @@ const isHebrew = (s) => /[\u0590-\u05FF]/.test(s ?? '');
 // Finds a book by ISBN: local table first, then Open Library, Google Books, and the
 // National Library of Israel (Israeli ISBNs start 978-965).
 // Returns { book } or { book: null, isbn } when nothing was found.
-export async function lookupIsbn(raw) {
+export async function lookupIsbn(raw, context = 'isbn_lookup') {
   const isbn = normalizeIsbn(raw);
   if (!isbn) return { error: 'invalid_isbn' };
-  const existing = await one('SELECT * FROM books WHERE isbn13 = $1', [isbn]);
-  if (existing) return { book: existing };
+  const israeli = isbn.startsWith('978965');
+  return withLookup({ kind: 'isbn', query: isbn, hebrew: israeli, context }, async () => {
+    const existing = await one('SELECT * FROM books WHERE isbn13 = $1', [isbn]);
+    if (existing) return { book: existing, source: 'cache' };
 
-  let meta = null;
-  const sources = isbn.startsWith('978965')
-    ? [fromLocalIsbn, fromNli, fromGoogleBooks, fromOpenLibrary]
-    : [fromLocalIsbn, fromOpenLibrary, fromGoogleBooks, fromNli];
-  for (const src of sources) {
-    try { meta = await src(isbn); } catch { meta = null; }
-    if (meta) break;
-  }
-  if (!meta) return { book: null, isbn };
-  return { book: await upsertBook({ ...meta, isbn13: isbn }) };
+    const local = ['local_ol', fromLocalIsbn], nli = ['nli', fromNli];
+    const gb = ['googlebooks', fromGoogleBooks], ol = ['openlibrary', fromOpenLibrary];
+    for (const [name, src] of israeli ? [local, nli, gb, ol] : [local, ol, gb, nli]) {
+      let meta = null;
+      try { meta = await track(name, () => src(isbn)); } catch { /* next source */ }
+      if (meta) return { book: await upsertBook({ ...meta, isbn13: isbn }), source: name };
+    }
+    return { book: null, isbn };
+  });
 }
 
 export async function upsertBook(b) {
@@ -198,48 +277,52 @@ function similarity(a, b) {
 
 // Finds a catalogue record for a title (and author) read off a spine or cover.
 // Returns { book } on a confident match, otherwise { book: null }.
-export async function lookupTitle(title, author) {
-  const r = await searchTitle(title, author);
-  // A misread author name hides good matches; try the title alone.
-  return r.book || !author ? r : searchTitle(title, null);
+export async function lookupTitle(title, author, context = 'scan') {
+  return withLookup({ kind: 'title', query: title, author, hebrew: isHebrew(title), context }, async () => {
+    const r = await searchTitle(title, author);
+    // A misread author name hides good matches; try the title alone.
+    return r.book || !author ? r : searchTitle(title, null);
+  });
 }
 
 async function searchTitle(title, author) {
   const candidates = [];
-  for (const r of await localTitleCandidates(title)) {
-    candidates.push({ ...fromLocal(r), bare: r.title, isbn: r.isbn13, alt: r.tnorm });
+  for (const r of await track('local_ol', () => localTitleCandidates(title)).catch(() => [])) {
+    candidates.push({ ...fromLocal(r), bare: r.title, isbn: r.isbn13, alt: r.tnorm, via: 'local_ol' });
   }
   const local = pickBest(candidates, title, author);
-  if (local) return { book: await saveCandidate(local, title) };
+  if (local) return { book: await saveCandidate(local, title), source: local.via, score: local.score };
   // Hebrew titles: the National Library has nearly every Israeli book.
   if (isHebrew(title)) {
     try {
-      candidates.push(...await nliSearch(`title,contains,${title}`));
+      for (const b of await track('nli', () => nliSearch(`title,contains,${title}`)) ?? []) candidates.push({ ...b, via: 'nli' });
     } catch { /* fall through to Google Books */ }
   }
   const q = [`intitle:${title}`, author && `inauthor:${author}`].filter(Boolean).join(' ');
   try {
-    const gb = await getJson(gbUrl(`maxResults=5&q=${encodeURIComponent(q)}`));
+    const gb = await track('googlebooks', () => getJson(gbUrl(`maxResults=5&q=${encodeURIComponent(q)}`)), (r) => r?.items?.length ?? 0);
     for (const item of gb?.items ?? []) {
       const v = item.volumeInfo;
       const isbn = v.industryIdentifiers?.find((i) => i.type === 'ISBN_13')?.identifier;
       candidates.push({ title: v.subtitle ? `${v.title}: ${v.subtitle}` : v.title, bare: v.title, authors: v.authors ?? [], isbn,
         publisher: v.publisher ?? null, year: Number(String(v.publishedDate ?? '').slice(0, 4)) || null, language: v.language ?? null,
-        cover_url: v.imageLinks?.thumbnail?.replace(/^http:/, 'https:') ?? null, source: 'googlebooks', source_ids: { googlebooks: item.id } });
+        cover_url: v.imageLinks?.thumbnail?.replace(/^http:/, 'https:') ?? null, source: 'googlebooks', source_ids: { googlebooks: item.id }, via: 'googlebooks' });
     }
   } catch { /* try Open Library */ }
   if (!pickBest(candidates, title, author)) {
     try {
-      const ol = await getJson(`https://openlibrary.org/search.json?limit=5&fields=key,title,author_name,isbn,first_publish_year,cover_i&title=${encodeURIComponent(title)}${author ? `&author=${encodeURIComponent(author)}` : ''}`);
+      const ol = await track('openlibrary', () => getJson(`https://openlibrary.org/search.json?limit=5&fields=key,title,author_name,isbn,first_publish_year,cover_i&title=${encodeURIComponent(title)}${author ? `&author=${encodeURIComponent(author)}` : ''}`), (r) => r?.docs?.length ?? 0);
       for (const d of ol?.docs ?? []) {
         candidates.push({ title: d.title, bare: d.title, authors: d.author_name ?? [], isbn: d.isbn?.find((i) => i.length === 13),
           publisher: null, year: d.first_publish_year ?? null, language: null,
-          cover_url: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null, source: 'openlibrary', source_ids: { openlibrary: d.key } });
+          cover_url: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null, source: 'openlibrary', source_ids: { openlibrary: d.key }, via: 'openlibrary' });
       }
     } catch { /* no match */ }
   }
   const best = pickBest(candidates, title, author);
-  return { book: best ? await saveCandidate(best, title) : null };
+  // On a miss, keep the closest score anyway: it helps tune the 0.7 threshold.
+  return best ? { book: await saveCandidate(best, title), source: best.via, score: best.score }
+    : { book: null, score: rankBest(candidates, title, author).score || null };
 }
 
 // Dice on letter pairs: tolerates spelling variants, so only counts when very close.
@@ -253,6 +336,11 @@ function charSimilarity(a, b) {
 }
 
 function pickBest(candidates, title, author) {
+  const { best, score } = rankBest(candidates, title, author);
+  return best && score >= 0.7 ? { ...best, score } : null;
+}
+
+function rankBest(candidates, title, author) {
   let best = null, bestScore = 0;
   for (const c of candidates) {
     const chars = Math.max(charSimilarity(title, c.title), charSimilarity(title, c.bare));
@@ -263,7 +351,7 @@ function pickBest(candidates, title, author) {
     if (author && c.authors.length) score = score * 0.75 + 0.25 * Math.max(...c.authors.map((a) => similarity(author, a)));
     if (score > bestScore) { best = c; bestScore = score; }
   }
-  return best && bestScore >= 0.7 ? best : null;
+  return { best, score: bestScore };
 }
 
 async function saveCandidate(c, readTitle) {
@@ -277,6 +365,6 @@ async function saveCandidate(c, readTitle) {
     const existing = await one('SELECT * FROM books WHERE isbn13 = $1', [isbn13]);
     if (existing) return existing;
   }
-  const { bare, isbn, alt, ...meta } = c;
+  const { bare, isbn, alt, via, score, ...meta } = c;
   return findOrCreateBook({ ...meta, isbn13 });
 }

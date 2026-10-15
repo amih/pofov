@@ -48,7 +48,7 @@ async function render() {
   document.body.classList.toggle('full', path === '/');
   const me = await getMe();
   if (me && !me.screen_name && !['/me', '/about'].includes(path)) {
-    sessionStorage.setItem('pofov:next', location.pathname + location.search);
+    sessionStorage.setItem('seferehov:next', location.pathname + location.search);
     history.replaceState(null, '', '/me?welcome=1');
     return render();
   }
@@ -73,7 +73,7 @@ document.addEventListener('click', (e) => {
   navigate(url.pathname + url.search);
 });
 window.addEventListener('popstate', render);
-window.addEventListener('pofov:navigate', render);
+window.addEventListener('seferehov:navigate', render);
 
 const badge = document.getElementById('queue-badge');
 let queued = 0;
@@ -104,7 +104,7 @@ function translateShell() {
   showBadge();
 }
 document.getElementById('lang').onclick = toggleLang;
-document.addEventListener('pofov:lang', () => { translateShell(); showMeTab(); render(); });
+document.addEventListener('seferehov:lang', () => { translateShell(); showMeTab(); render(); });
 applyLang();
 translateShell();
 
@@ -121,6 +121,6 @@ async function showMeTab(e) {
   tab.innerHTML = me ? `${avatarHtml(me, 26)}${me.screen_name ? '' : t('nav.me')}` : `<span>👤</span>${t('nav.signin')}`;
   if (me?.screen_name) tab.insertAdjacentText('beforeend', [...me.screen_name].slice(0, 12).join(''));
 }
-document.addEventListener('pofov:me', showMeTab);
+document.addEventListener('seferehov:me', showMeTab);
 showMeTab();
 render();

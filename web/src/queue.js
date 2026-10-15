@@ -1,7 +1,7 @@
 import { get, set, del, keys, createStore } from 'idb-keyval';
 
 // Uploads made with no signal are kept here and sent when the phone is back online.
-const store = createStore('pofov-queue', 'requests');
+const store = createStore('seferehov-queue', 'requests');
 const listeners = new Set();
 
 export const onQueueChange = (fn) => listeners.add(fn);

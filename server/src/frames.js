@@ -33,7 +33,7 @@ const hamming = (a, b) => { let x = a ^ b, n = 0; while (x) { n += Number(x & 1n
 // a second, keeps the sharpest per WINDOW_S, drops near-duplicates and blurry
 // leftovers, and caps the count. Returns [{buffer, t}] in time order.
 export async function pickFrames(videoPath) {
-  const dir = await mkdtemp(join(tmpdir(), 'pofov-frames-'));
+  const dir = await mkdtemp(join(tmpdir(), 'seferehov-frames-'));
   try {
     await run('ffmpeg', ['-v', 'error', '-t', String(MAX_SECONDS), '-i', videoPath,
       '-vf', `fps=${FPS},scale='min(1600,iw)':-2`, '-q:v', '3', join(dir, '%04d.jpg')], { timeout: 180_000 });

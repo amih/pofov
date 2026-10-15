@@ -1,5 +1,5 @@
 {
-  "name": "pofov",
+  "name": "seferehov",
   "private": true,
   "description": "ספרחוב (Seferehov) — crowd-sourced map of free street libraries.",
   "workspaces": ["server", "web"],

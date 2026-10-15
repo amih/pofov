@@ -8,7 +8,7 @@ const GOOGLE_G = `<svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="t
 
 export default async function loginView(root, _, query) {
   const error = ERRORS.includes(query.get('error')) && t(`login.err.${query.get('error')}`);
-  if (query.get('next')) sessionStorage.setItem('pofov:next', query.get('next'));
+  if (query.get('next')) sessionStorage.setItem('seferehov:next', query.get('next'));
   const { google } = await api('/api/auth/config').catch(() => ({ google: false }));
   root.innerHTML = `
   <section class="page narrow">

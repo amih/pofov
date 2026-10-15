@@ -191,7 +191,7 @@ export default async function locationRoutes(app) {
   });
 
   app.get('/api/books/lookup', async (req, reply) => {
-    const result = await lookupIsbn(req.query.isbn);
+    const { lookupId, ...result } = await lookupIsbn(req.query.isbn);
     if (result.error) return reply.code(400).send(result);
     return result;
   });
@@ -211,7 +211,7 @@ export default async function locationRoutes(app) {
     if (fields.book_id) {
       book = await one('SELECT * FROM books WHERE id = $1', [Number(fields.book_id)]);
     } else if (fields.isbn) {
-      const r = await lookupIsbn(fields.isbn);
+      const r = await lookupIsbn(fields.isbn, 'sighting');
       if (r.error) return reply.code(400).send(r);
       book = r.book;
       if (!book && fields.title) {
