@@ -1,5 +1,5 @@
 import { checkForUpdate, hardReset, isUpdateWaiting, maybeApply } from '../update.js';
-import { toast } from '../ui.js';
+import { toast, contactHtml } from '../ui.js';
 import { t, lang, setLang } from '../i18n.js';
 
 export default function aboutView(root) {
@@ -12,8 +12,13 @@ export default function aboutView(root) {
       <li>${t('about.li2')}</li>
       <li>${t('about.li3')}</li>
     </ul>
+    <h2>${t('shelves.title')}</h2>
+    <p>${t('shelves.note_html')}</p>
     <h2>${t('how.title')}</h2>
     <p>${t('how.body_html')}</p>
+    <h2>${t('who.title')}</h2>
+    <p>${t('who.body')}</p>
+    ${contactHtml()}
     <h2>${t('lang.label')}</h2>
     <div class="seg" id="langs"><button data-l="he" lang="he">עברית</button><button data-l="en" lang="en">English</button></div>
     <h2>${t('about.install')}</h2>
@@ -23,6 +28,7 @@ export default function aboutView(root) {
     <p class="row"><button class="btn" id="upd">${t('about.check')}</button><button class="btn" id="reset">${t('about.repair')}</button></p>
     <h2>${t('about.data')}</h2>
     <p class="small">${t('about.data_html')}</p>
+    <p class="small">${t('who.footnote')}</p>
   </section>`;
   root.querySelectorAll('#langs button').forEach((b) => {
     b.classList.toggle('on', b.dataset.l === lang());

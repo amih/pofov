@@ -8,6 +8,8 @@
   --line: #e7dccd;
   --blue: #3d7cb5;
   --green: #3f8f6b;
+  --leaf: #9cdb8e;
+  --leaf-ink: #1f4d24;
   --red: #c0443a;
   --yellow: #e8b341;
   --radius: 12px;
@@ -81,15 +83,22 @@ body.full #view { position: fixed; top: calc(var(--top-h) + env(safe-area-inset-
 .mini-map { direction: ltr; }
 .leaflet-popup-content { text-align: start; }
 .fab-add, .fab-locate { position: absolute; z-index: 500; box-shadow: 0 3px 12px rgb(0 0 0 / .25); border: 0; cursor: pointer; }
-.fab-add { inset-inline-end: 16px; bottom: 20px; background: var(--wood); color: #fff; text-decoration: none; font-weight: 700; padding: 13px 18px; border-radius: 99px; }
-.fab-locate { inset-inline-end: 16px; top: 16px; width: 46px; height: 46px; border-radius: 50%; background: var(--card); color: var(--ink); font-size: 1.5rem; }
+.fab-add { left: 16px; bottom: 26px; background: var(--wood); color: #fff; text-decoration: none; font-weight: 700; padding: 13px 18px; border-radius: 99px; }
+/* Same corner as Google Maps' my-location button, in both languages. */
+.fab-locate { right: 16px; bottom: 26px; width: 46px; height: 46px; border-radius: 50%; background: var(--card); color: var(--ink); font-size: 1.5rem; }
 .pin { width: 34px; height: 34px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--wood); border: 3px solid #fff; box-shadow: 0 2px 6px rgb(0 0 0 / .35); display: flex; align-items: center; justify-content: center; }
 .pin span { transform: rotate(45deg); color: #fff; font-weight: 700; font-size: 12px; }
 .pin.pending { background: var(--muted); }
-.bubble { border-radius: 50%; background: color-mix(in srgb, var(--wood) 85%, transparent); border: 3px solid #fff; box-shadow: 0 2px 6px rgb(0 0 0 / .35); color: #fff; font-weight: 700; font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.pin.live { background: var(--leaf); }
+.pin.live span { color: var(--leaf-ink); }
+.pin.osm { width: 26px; height: 26px; border-width: 2px; background: #d9cbbb; box-shadow: 0 1px 3px rgb(0 0 0 / .25); }
+.pin.osm span { font-size: 10px; opacity: .7; }
+.bubble { border-radius: 50%; background: color-mix(in srgb, #d9cbbb 90%, transparent); border: 2px solid #fff; box-shadow: 0 1px 4px rgb(0 0 0 / .3); color: #5a4636; font-weight: 700; font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .leaflet-container { font: inherit; }
-.leaflet-container .marker-cluster-small, .leaflet-container .marker-cluster-medium, .leaflet-container .marker-cluster-large { background: color-mix(in srgb, var(--wood) 35%, transparent); }
-.leaflet-container .marker-cluster-small div, .leaflet-container .marker-cluster-medium div, .leaflet-container .marker-cluster-large div { background: var(--wood); color: #fff; font-weight: 700; }
+.leaflet-container .marker-cluster-small, .leaflet-container .marker-cluster-medium, .leaflet-container .marker-cluster-large { background: color-mix(in srgb, #d9cbbb 45%, transparent); }
+.leaflet-container .marker-cluster-small div, .leaflet-container .marker-cluster-medium div, .leaflet-container .marker-cluster-large div { background: #d9cbbb; color: #5a4636; font-weight: 700; }
+.leaflet-container .marker-cluster.live { background: color-mix(in srgb, var(--leaf) 45%, transparent); }
+.leaflet-container .marker-cluster.live div { background: var(--leaf); color: var(--leaf-ink); }
 .mini-map { height: 220px; border-radius: var(--radius); overflow: hidden; }
 
 /* Buttons and forms */

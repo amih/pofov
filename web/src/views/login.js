@@ -13,6 +13,7 @@ export default async function loginView(root, _, query) {
   root.innerHTML = `
   <section class="page narrow">
     <h1>${t('login.title')}</h1>
+    <p>${t('shelves.note_html')}</p>
     ${error ? `<p class="note">${error}</p>` : ''}
     ${google ? `
       <a class="btn big google" href="/api/auth/google">${GOOGLE_G} ${t('login.google')}</a>

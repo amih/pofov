@@ -1,6 +1,6 @@
 import { api, getMe } from '../api.js';
 import { navigate } from '../nav.js';
-import { esc, toast, avatarHtml } from '../ui.js';
+import { esc, toast, avatarHtml, contactHtml } from '../ui.js';
 import { t } from '../i18n.js';
 
 const NAME_ERRORS = ['invalid_screen_name', 'screen_name_taken'];
@@ -20,7 +20,7 @@ export default async function meView(root, _, query) {
   const needsName = !me.screen_name;
   root.innerHTML = `
   <section class="page">
-    ${needsName ? `<h1>${t('me.welcome')}</h1><p>${t('me.choose')}</p>`
+    ${needsName ? `<h1>${t('me.welcome')}</h1><p>${t('shelves.note_html')}</p><p>${t('me.choose')}</p>`
       : `<div class="profile-head">${avatarHtml(me, 72)}<div><h1>${esc(me.screen_name)}</h1><p class="muted">${t('me.levels')[me.trust_level]}</p></div></div>`}
     <form class="form" id="name">
       <label>${t('me.screen_name')}
@@ -47,7 +47,9 @@ export default async function meView(root, _, query) {
       <a class="btn" href="/about">${esc(t('me.about'))}</a>
       <button class="btn" id="logout">${t('me.logout')}</button>
     </p>
-    <p class="muted small">${t('me.signed_as_html', { email: esc(me.email), google: me.has_google })}</p>`}
+    <p class="muted small">${t('me.signed_as_html', { email: esc(me.email), google: me.has_google })}</p>
+    <h2>${t('contact.title')}</h2>
+    ${contactHtml()}`}
   </section>`;
 
   const rerender = () => meView(root, _, new URLSearchParams());

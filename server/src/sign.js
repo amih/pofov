@@ -5,15 +5,15 @@ import { locationByCode } from './locations.js';
 
 const TEXT = {
   he: {
-    dir: 'rtl', name: 'ספרחוב', tag: 'ספריית רחוב חינמית',
-    lead: '<strong>זו ספריית רחוב חינמית.</strong> לוקחים ספר, משאירים ספר.',
-    steps: ['סרקו את הקוד כדי לראות אילו ספרים יש כאן עכשיו.', 'לקחתם ספר או השארתם אחד? אפשר לעדכן באפליקציה — לא חובה.', 'מכירים עוד ספריית רחוב? הוסיפו אותה למפה.'],
+    dir: 'rtl', name: 'ספרחוב', tag: 'מפת ספריות הרחוב',
+    lead: '<strong>המדף הזה פתוח לכולם, כמו תמיד.</strong> ספרחוב היא אפליקציה חינמית לאוהבי ספרים: היא מראה איפה יש מדפי ספרים ציבוריים ואילו ספרים נמצאים בהם. אני לא מנהל את המדף הזה ולא מוסיף לו כללים.',
+    steps: ['סרקו את הקוד כדי לראות אילו ספרים יש כאן עכשיו.', 'לקחתם ספר או השארתם אחד? אפשר לעדכן באפליקציה — לא חובה.', 'מכירים עוד מדף ספרים ציבורי? הוסיפו אותו למפה.'],
     print: 'הדפסה',
   },
   en: {
-    dir: 'ltr', name: 'Seferehov', tag: 'Free street library',
-    lead: '<strong>This is a free book exchange.</strong> Take a book, leave a book.',
-    steps: ['Scan the code to see which books are here now.', 'Took a book or left one? You can say so in the app — not required.', 'Know another free library? Add it to the map.'],
+    dir: 'ltr', name: 'Seferehov', tag: 'A map of free street libraries',
+    lead: '<strong>This shelf is open to everyone, as always.</strong> Seferehov is a free app for book lovers. It shows where public book shelves are and which books are on them. I do not run this shelf and I add no rules to it.',
+    steps: ['Scan the code to see which books are here now.', 'Took a book or left one? You can say so in the app — not required.', 'Know another public book shelf? Add it to the map.'],
     print: 'Print',
   },
 };

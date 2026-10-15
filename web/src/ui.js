@@ -87,6 +87,15 @@ export function avatarHtml({ avatar, screen_name, name }, size = 32) {
   return `<span class="avatar letter" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.45)}px;background:${color}">${esc([...label][0]?.toUpperCase() ?? '?')}</span>`;
 }
 
+// Opens the reader's own mail app with a ready subject and greeting.
+export const CONTACT_EMAIL = 'ami@seferehov.com';
+export function contactHtml() {
+  const body = `${t('contact.greeting')}\n\n\n\n--\n${t('contact.version')}: ${__APP_VERSION__}`;
+  const href = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(t('contact.subject'))}&body=${encodeURIComponent(body)}`;
+  return `<p>${t('contact.body')}</p>
+    <p class="row"><a class="btn" href="${href}">✉️ ${t('contact.button')}</a> <a href="${href}" dir="ltr">${CONTACT_EMAIL}</a></p>`;
+}
+
 // "Nothing is required" box; hidden for good once dismissed.
 const NOTE_KEY = 'seferehov:nostrings';
 export function noStringsNote() {

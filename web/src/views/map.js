@@ -10,12 +10,14 @@ import { t, isRtl } from '../i18n.js';
 const VIEW_KEY = 'seferehov:mapView';
 const ISRAEL = [[29.45, 34.25], [33.34, 35.9]]; // first-visit view
 
-const pin = (books, pending) => L.divIcon({
+// Green = added in the app or has books reported; pale = imported from OpenStreetMap, nothing known yet.
+const isLive = (l) => l.source !== 'osm' || l.books > 0;
+const pin = (books, kind) => L.divIcon({
   className: '',
-  html: `<div class="pin${pending ? ' pending' : ''}"><span>${books || '📚'}</span></div>`,
-  iconSize: [34, 42],
-  iconAnchor: [17, 40],
-  popupAnchor: [0, -36],
+  html: `<div class="pin ${kind}"><span>${books || '📚'}</span></div>`,
+  ...(kind === 'osm'
+    ? { iconSize: [26, 32], iconAnchor: [13, 30], popupAnchor: [0, -28] }
+    : { iconSize: [34, 42], iconAnchor: [17, 40], popupAnchor: [0, -36] }),
 });
 
 const bubble = (n) => {
@@ -42,7 +44,16 @@ export default function mapView(root) {
   else map.fitBounds(ISRAEL);
   let removed = false;
   import('../basemap.js').then((m) => m.basemap()).then((layer) => { if (!removed) layer.addTo(map); });
-  const cluster = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 50 });
+  const cluster = L.markerClusterGroup({
+    showCoverageOnHover: false,
+    maxClusterRadius: 50,
+    iconCreateFunction: (c) => {
+      const n = c.getChildCount();
+      const live = c.getAllChildMarkers().some((m) => m.options.live);
+      const size = n < 10 ? 'small' : n < 100 ? 'medium' : 'large';
+      return L.divIcon({ html: `<div><span>${n}</span></div>`, className: `marker-cluster marker-cluster-${size}${live ? ' live' : ''}`, iconSize: L.point(40, 40) });
+    },
+  });
   map.addLayer(cluster);
   const bubbles = L.layerGroup().addTo(map);
   const shown = new Map();
@@ -59,7 +70,7 @@ export default function mapView(root) {
       if (clusters) {
         map.removeLayer(cluster);
         for (const c of clusters) {
-          if (c.n === 1) { bubbles.addLayer(L.marker([c.lat, c.lon], { icon: pin(0) }).on('click', () => map.setView([c.lat, c.lon], 15))); continue; }
+          if (c.n === 1) { bubbles.addLayer(L.marker([c.lat, c.lon], { icon: pin(0, 'osm') }).on('click', () => map.setView([c.lat, c.lon], 15))); continue; }
           bubbles.addLayer(L.marker([c.lat, c.lon], { icon: bubble(c.n) }).on('click', () => map.setView([c.lat, c.lon], Math.min(zoom + 3, 16))));
         }
         return;
@@ -67,7 +78,8 @@ export default function mapView(root) {
       map.addLayer(cluster);
       for (const l of locations) {
         if (shown.has(l.code)) continue;
-        const m = L.marker([l.lat, l.lon], { icon: pin(l.books, l.status === 'pending') });
+        const kind = l.status === 'pending' ? 'pending' : isLive(l) ? 'live' : 'osm';
+        const m = L.marker([l.lat, l.lon], { icon: pin(l.books, kind), live: kind !== 'osm', zIndexOffset: kind === 'osm' ? 0 : 1000 });
         m.bindPopup(`<div dir="${isRtl() ? 'rtl' : 'ltr'}"><strong>${esc(l.name || t('free_library'))}</strong><br>
           ${l.books ? t('map.books', { n: l.books }) : t('map.no_books')}
           ${l.status === 'pending' ? `<br><em>${t('map.pending')}</em>` : ''}
@@ -92,7 +104,7 @@ export default function mapView(root) {
       const p = await getPosition();
       if (me) me.setLatLng([p.lat, p.lon]);
       else me = L.circleMarker([p.lat, p.lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#2a7de1', fillOpacity: 1 }).addTo(map);
-      if (fly) map.flyTo([p.lat, p.lon], Math.max(map.getZoom(), 15));
+      if (fly) map.flyTo([p.lat, p.lon], Math.max(map.getZoom(), 16)); // street level, like Google Maps
     } catch (e) { if (fly) toast(e.message); }
   }
   root.querySelector('.fab-locate').onclick = () => locate(true);
