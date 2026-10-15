@@ -1,5 +1,5 @@
 import { api, getMe } from '../api.js';
-import { esc, getPosition, timeAgo, toast, avatarHtml } from '../ui.js';
+import { esc, getPosition, timeAgo, toast, avatarHtml, noStringsNote } from '../ui.js';
 import { t, lang } from '../i18n.js';
 
 export default async function locationView(root, [code]) {
@@ -9,7 +9,9 @@ export default async function locationView(root, [code]) {
     root.innerHTML = `<section class="page"><h1>${t('loc.notfound')}</h1><p>${t(e.status === 404 ? 'loc.notfound_404' : 'offline')}</p><p><a href="/">${t('back.map')}</a></p></section>`;
     return;
   }
-  const { location: l, books, activity, my_pending } = data;
+  const { location: l, books, activity, my_pending, my_pending_edits, my_scans = [] } = data;
+  const readyScan = my_scans.find((x) => x.status === 'done');
+  const busyScan = my_scans.find((x) => x.status === 'queued' || x.status === 'processing');
   const me = await getMe();
   const nav = `https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lon}`;
 
@@ -18,6 +20,7 @@ export default async function locationView(root, [code]) {
     ${l.photo ? `<img class="hero" src="${l.photo.url}" alt="${t('loc.photo_alt')}">` : ''}
     <h1>${esc(l.name || t('free_library'))}</h1>
     ${l.status === 'pending' ? `<p class="note">${t('loc.pending')}</p>` : ''}
+    ${l.status === 'removed' ? `<p class="note">${t('loc.removed')}</p>` : ''}
     ${l.restricted ? `<p class="note">${t('loc.restricted')}</p>` : ''}
     ${l.description ? `<p class="desc">${esc(l.description)}</p>` : ''}
     <p class="muted">${l.last_checked_at ? t('loc.checked', { when: timeAgo(l.last_checked_at) }) : t('loc.not_checked')}
@@ -28,6 +31,10 @@ export default async function locationView(root, [code]) {
       <a class="btn" href="${nav}" target="_blank" rel="noopener">${t('loc.directions')}</a>
     </div>
     ${my_pending ? `<p class="note">${t('loc.my_pending', { n: my_pending })}</p>` : ''}
+    ${my_pending_edits ? `<p class="note">${t('loc.my_pending_edits', { n: my_pending_edits })}</p>` : ''}
+    ${readyScan ? `<p><a class="btn primary" href="/scan/${readyScan.id}">${t('loc.scan_ready')}</a></p>`
+      : busyScan ? `<p class="note"><a href="/scan/${busyScan.id}">${t('loc.scan_waiting')}</a></p>` : ''}
+    ${noStringsNote()}
 
     <h2>${t('loc.shelf')} <span class="count">${books.length}</span></h2>
     ${books.length ? '' : `<p class="muted">${t('loc.no_books')}</p>`}
@@ -48,6 +55,7 @@ export default async function locationView(root, [code]) {
       `<li>${avatarHtml({ avatar: a.avatar, name: a.who }, 22)} ${t(`activity.${a.kind}_html`, { who: esc(a.who), title: esc(a.title) })} · ${timeAgo(a.created_at)}</li>`).join('')}</ul>` : ''}
 
     <p class="muted small">
+      <a href="/l/${l.code}/edit">${t('loc.edit')}</a> ·
       <a href="/api/locations/${l.code}/sign?lang=${lang()}" target="_blank">${t('loc.print')}</a>
     </p>
   </section>`;

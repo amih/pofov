@@ -2,12 +2,13 @@ import { config, POINTS } from './config.js';
 import { one, many, tx } from './db.js';
 import { requireUser } from './auth.js';
 import { savePhoto, photoUrls, avatarUrl } from './photos.js';
-import { lookupIsbn, upsertBook } from './books.js';
+import { lookupIsbn, upsertBook, findOrCreateBook } from './books.js';
 import { readForm } from './multipart.js';
-import { initialStatus, award, pointsForSighting, maybePromote } from './moderation.js';
+import { initialStatus, locationStatus, award, pointsForSighting } from './moderation.js';
 import { parseLatLon, shortCode } from './util.js';
 
 const DUPLICATE_RADIUS_M = 25;
+export const SIGHTING_KINDS = ['seen', 'added', 'taken', 'gone'];
 const MAP_LIMIT = 5000;
 const CLUSTER_BELOW_ZOOM = 10;
 const CELL_PX = 64; // one bubble per ~64 screen pixels
@@ -22,7 +23,7 @@ const PRESENT_BOOKS_SQL = `
   )
   SELECT b.id, b.isbn13, b.title, b.authors, b.year, b.cover_url, l.created_at AS last_seen
     FROM latest l JOIN books b ON b.id = l.book_id
-   WHERE l.kind = 'seen'
+   WHERE l.kind IN ('seen', 'added')
    ORDER BY l.created_at DESC`;
 
 async function locationByCode(code) {
@@ -54,7 +55,7 @@ export default async function locationRoutes(app) {
     const clamp = (n, lim) => Math.min(Math.max(n, -lim), lim);
     const [w, s, e, n] = [clamp(bbox[0], 180), clamp(bbox[1], 90), clamp(bbox[2], 180), clamp(bbox[3], 90)];
     const where = `l.geom::geometry && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-          AND (l.status = 'approved' OR l.created_by = $5)`;
+          AND (l.status = 'approved' OR (l.status = 'pending' AND l.created_by = $5))`;
     const params = [w, s, e, n, req.user?.id ?? null];
 
     // Zoomed out: one bubble per grid cell instead of thousands of pins.
@@ -93,9 +94,17 @@ export default async function locationRoutes(app) {
     );
     for (const a of activity) { a.avatar = avatarUrl(a.avatar_path); delete a.avatar_path; }
     const pending = req.user ? (await one(
-      `SELECT count(*)::int AS n FROM sightings WHERE location_id = $1 AND user_id = $2 AND status = 'pending'`,
+      `SELECT (SELECT count(*) FROM sightings WHERE location_id = $1 AND user_id = $2 AND status = 'pending')::int AS n,
+              (SELECT count(*) FROM location_edits WHERE location_id = $1 AND user_id = $2 AND status = 'pending')::int AS edits`,
       [loc.id, req.user.id],
-    )).n : 0;
+    )) : { n: 0, edits: 0 };
+    const scans = req.user ? await many(
+      `SELECT id, status, created_at FROM scans
+        WHERE location_id = $1 AND user_id = $2 AND status IN ('queued','processing','done')
+          AND created_at > now() - interval '3 days'
+        ORDER BY created_at DESC LIMIT 5`,
+      [loc.id, req.user.id],
+    ) : [];
     return {
       location: {
         code: loc.code, name: loc.name, description: loc.description, lat: loc.lat, lon: loc.lon,
@@ -104,7 +113,7 @@ export default async function locationRoutes(app) {
         last_checked_at: loc.last_checked_at, created_at: loc.created_at,
         photo: photoUrls(photo),
       },
-      books, activity, my_pending: pending,
+      books, activity, my_pending: pending.n, my_pending_edits: pending.edits, my_scans: scans,
     };
   });
 
@@ -127,7 +136,7 @@ export default async function locationRoutes(app) {
     }
 
     const photo = files.photo && await savePhoto(files.photo, { userId: req.user.id, kind: 'location' });
-    const status = initialStatus(req.user);
+    const status = locationStatus(req.user);
     const name = String(fields.name ?? '').trim().slice(0, 120) || null;
     const description = String(fields.description ?? '').trim().slice(0, 1000) || null;
     const restricted = fields.restricted === '1' || fields.restricted === true;
@@ -180,7 +189,8 @@ export default async function locationRoutes(app) {
     return result;
   });
 
-  // Report a book at a location: seen (on the shelf), taken (I took it), gone (not there any more).
+  // Report a book at a location: seen (on the shelf), added (I left it here),
+  // taken (I took it), gone (not there any more).
   app.post('/api/locations/:code/sightings', {
     preHandler: requireUser(),
     config: { rateLimit: { max: 200, timeWindow: '1 hour' } },
@@ -188,7 +198,7 @@ export default async function locationRoutes(app) {
     const loc = await locationByCode(req.params.code);
     if (!visibleTo(loc, req.user)) return reply.code(404).send({ error: 'not_found' });
     const { fields, files } = await readForm(req);
-    const kind = ['seen', 'taken', 'gone'].includes(fields.kind) ? fields.kind : 'seen';
+    const kind = SIGHTING_KINDS.includes(fields.kind) ? fields.kind : 'seen';
 
     let book = null;
     if (fields.book_id) {
@@ -201,7 +211,7 @@ export default async function locationRoutes(app) {
         book = await upsertBook({ isbn13: r.isbn, title: String(fields.title).slice(0, 300), authors: splitAuthors(fields.author), source: 'user' });
       }
     } else if (fields.title) {
-      book = await upsertBook({ title: String(fields.title).slice(0, 300), authors: splitAuthors(fields.author), source: 'user' });
+      book = await findOrCreateBook({ title: String(fields.title).slice(0, 300), authors: splitAuthors(fields.author), source: 'user' });
     }
     if (!book) return reply.code(422).send({ error: 'book_not_found' });
 
@@ -245,6 +255,6 @@ export default async function locationRoutes(app) {
   ));
 }
 
-const splitAuthors = (s) => String(s ?? '').split(/[,;&]/).map((a) => a.trim()).filter(Boolean).slice(0, 10);
+export const splitAuthors = (s) => String(s ?? '').split(/[,;&]/).map((a) => a.trim()).filter(Boolean).slice(0, 10);
 
-export { locationByCode, PRESENT_BOOKS_SQL };
+export { locationByCode, visibleTo, distanceTo, PRESENT_BOOKS_SQL };

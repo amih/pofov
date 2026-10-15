@@ -12,6 +12,14 @@ export const config = {
   adminEmails: (env.ADMIN_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
   minClientBuild: Number(env.MIN_CLIENT_BUILD || 0),
   trustThreshold: Number(env.TRUST_THRESHOLD || 5),
+  // 1 = every new library and every library change waits for a reviewer (admins excepted).
+  reviewAllLocations: (env.REVIEW_ALL_LOCATIONS ?? '1') === '1',
+  // Admins get one email per this many minutes when something waits for review. 0 = off.
+  notifyAdminMinutes: Number(env.NOTIFY_ADMIN_MINUTES ?? 10),
+  vision: {
+    url: (env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, ''),
+    model: env.VISION_MODEL || 'qwen3-vl:8b-instruct',
+  },
   google: {
     clientId: env.GOOGLE_CLIENT_ID || '',
     clientSecret: env.GOOGLE_CLIENT_SECRET || '',
@@ -32,5 +40,6 @@ export const POINTS = {
   sighting: 2,
   gone: 1,
   check: 1,
+  edit: 3,
   review: 1,
 };

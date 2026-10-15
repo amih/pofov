@@ -2,7 +2,7 @@ import { api, getMe } from '../api.js';
 import { enqueue } from '../queue.js';
 import { navigate } from '../nav.js';
 import { startScanner, scanImage } from '../scanner.js';
-import { esc, getPosition, shrinkImage, toast } from '../ui.js';
+import { esc, getPosition, shrinkImage, toast, noStringsNote } from '../ui.js';
 import { t } from '../i18n.js';
 
 export default async function addBookView(root, [code]) {
@@ -13,6 +13,20 @@ export default async function addBookView(root, [code]) {
   <section class="page">
     <p><a href="/l/${code}">${t('back.library')}</a></p>
     <h1>${t('addbook.title')}</h1>
+    ${noStringsNote()}
+    <h2>${t('addbook.mode')}</h2>
+    <div class="seg" id="mode"><button data-k="seen" class="on">${t('addbook.mode_seen')}</button><button data-k="added">${t('addbook.mode_added')}</button></div>
+    <p class="muted small">${t('addbook.mode_note')}</p>
+
+    <h2>${t('addbook.shelf_title')}</h2>
+    <p class="muted">${t('addbook.shelf_lead')}</p>
+    <p class="row">
+      <label class="btn primary">${t('addbook.shelf_photos')}<input type="file" accept="image/*" capture="environment" multiple hidden id="shelf"></label>
+      <label class="btn">${t('addbook.shelf_video')}<input type="file" accept="video/*" capture="environment" hidden id="video"></label>
+    </p>
+    <p id="upload" class="muted"></p>
+
+    <h2>${t('addbook.barcode_title')}</h2>
     <p class="muted">${t('addbook.lead')}</p>
     <div class="scanner"><video muted></video><div class="frame"></div></div>
     <p class="row">
@@ -42,6 +56,13 @@ export default async function addBookView(root, [code]) {
   let stop = null;
   let pos = null;
   let count = 0;
+  let mode = 'seen';
+  root.querySelectorAll('#mode button').forEach((b) => {
+    b.onclick = () => {
+      mode = b.dataset.k;
+      root.querySelectorAll('#mode button').forEach((x) => x.classList.toggle('on', x === b));
+    };
+  });
   getPosition().then((p) => { pos = p; }).catch(() => {});
 
   async function send(fields, files = {}) {
@@ -89,13 +110,13 @@ export default async function addBookView(root, [code]) {
       result.querySelector('#unknown').onsubmit = async (e) => {
         e.preventDefault();
         const f = e.target;
-        const r = await send({ isbn, title: f.title.value, author: f.author.value, kind: 'seen' });
+        const r = await send({ isbn, title: f.title.value, author: f.author.value, kind: mode });
         addedRow(f.title.value, r.queued ? t('status.offline') : statusText(r));
         result.innerHTML = '';
       };
       return;
     }
-    const r = await send({ isbn, kind: 'seen' });
+    const r = await send({ isbn, kind: mode });
     const title = book?.title ?? `ISBN ${isbn}`;
     result.innerHTML = `
       <div class="card book-card">
@@ -137,12 +158,53 @@ export default async function addBookView(root, [code]) {
     if (v) handleIsbn(v);
     e.target.reset();
   };
+  // Shelf photos / video: uploaded, read on the server, confirmed on /scan/:id.
+  const uploadText = root.querySelector('#upload');
+  async function uploadScan(files) {
+    const url = `/api/locations/${code}/scans`;
+    const fields = { kind: mode, lat: pos?.lat ?? '', lon: pos?.lon ?? '' };
+    if (!navigator.onLine) {
+      await enqueue(url, fields, files, 'shelf');
+      toast(t('addbook.queued_offline'));
+      return;
+    }
+    const fd = new FormData();
+    Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
+    Object.entries(files).forEach(([k, b]) => fd.append(k, b, b.name || `${k}.jpg`));
+    uploadText.textContent = t('addbook.uploading');
+    try {
+      const { scan } = await api(url, { method: 'POST', form: fd });
+      navigate(`/scan/${scan.id}`);
+    } catch (e) {
+      uploadText.textContent = '';
+      if (e.status === 413) toast(t('addbook.too_large'));
+      else if (e instanceof TypeError) { await enqueue(url, fields, files, 'shelf'); toast(t('addbook.queued_offline')); }
+      else toast(e.message);
+    }
+  }
+  root.querySelector('#shelf').onchange = async (e) => {
+    const list = [...e.target.files].slice(0, 8);
+    e.target.value = '';
+    if (!list.length) return;
+    uploadText.textContent = t('addbook.uploading');
+    const files = {};
+    for (const [i, f] of list.entries()) files[`photo${i}`] = await shrinkImage(f, 2400);
+    uploadScan(files);
+  };
+  root.querySelector('#video').onchange = (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    if (f.size > 100 * 1024 * 1024) return toast(t('addbook.too_large'));
+    uploadScan({ video: f });
+  };
+
   const noisbn = root.querySelector('#noisbn');
   noisbn.onsubmit = async (e) => {
     e.preventDefault();
     const file = noisbn.photo.files[0];
     const photo = file ? await shrinkImage(file) : null;
-    const r = await send({ title: noisbn.title.value, author: noisbn.author.value, kind: 'seen' }, { photo });
+    const r = await send({ title: noisbn.title.value, author: noisbn.author.value, kind: mode }, { photo });
     addedRow(noisbn.title.value, r.queued ? t('status.offline') : statusText(r));
     noisbn.reset();
   };

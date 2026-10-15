@@ -4,6 +4,9 @@ A shared map of free street libraries (book boxes, little free libraries, shelve
 
 - **Add a library**: GPS position, a photo, and a hint for finding it.
 - **Add books**: scan the barcode on the back cover; details come from Open Library / Google Books. Books without a barcode can be typed in.
+- **Photograph the shelf**: a few photos or a short video of the spines/covers. The server picks sharp, distinct video frames (ffmpeg), reads ISBN barcodes (ZXing) and titles (local vision model via Ollama, default `qwen3-vl:8b-instruct`), looks them up, and the user ticks/corrects the list before anything is saved.
+- **Seen, left, taken**: report a book on the shelf, a book you left, or a book you took — all optional.
+- **Library changes**: anyone can suggest a new name, hint, photo, position or "it's gone". With `REVIEW_ALL_LOCATIONS=1` (default) every new library and change waits for a reviewer; admins get an email digest (`NOTIFY_ADMIN_MINUTES`).
 - **Books come and go**: the app stores *sightings* (seen / taken / not there), so every shelf shows what was last seen and when.
 - **Points and trust**: every approved report earns points. New users' reports go to a review queue; after a few approved ones they publish directly. Reports from far away from the library always go to review.
 - **Works offline**: photos and scans made without signal upload later.

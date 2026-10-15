@@ -7,6 +7,12 @@ export function initialStatus(user, { far = false } = {}) {
   return user.trust_level >= 1 && !far ? 'approved' : 'pending';
 }
 
+// New libraries and changes to libraries: reviewed unless an admin made them.
+export function locationStatus(user) {
+  if (user.trust_level >= 3) return 'approved';
+  return config.reviewAllLocations ? 'pending' : initialStatus(user);
+}
+
 export async function award(db, { userId, points, reason, refType, refId, by = null }) {
   if (!userId) return;
   await db.query(
@@ -16,7 +22,7 @@ export async function award(db, { userId, points, reason, refType, refId, by = n
   );
 }
 
-export const pointsForSighting = (kind) => (kind === 'seen' ? POINTS.sighting : POINTS.gone);
+export const pointsForSighting = (kind) => (kind === 'seen' || kind === 'added' ? POINTS.sighting : POINTS.gone);
 
 // After N approved contributions a new user becomes trusted.
 export async function maybePromote(db, userId) {

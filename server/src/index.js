@@ -10,6 +10,9 @@ import authRoutes, { currentUser } from './auth.js';
 import locationRoutes from './locations.js';
 import reviewRoutes from './review.js';
 import signRoutes from './sign.js';
+import editRoutes from './edits.js';
+import scanRoutes, { startScanWorker } from './scans.js';
+import { startAdminNotifier } from './notify.js';
 
 const app = Fastify({ logger: true, trustProxy: '127.0.0.1', bodyLimit: 1024 * 1024 });
 
@@ -38,6 +41,8 @@ await app.register(authRoutes);
 await app.register(locationRoutes);
 await app.register(reviewRoutes);
 await app.register(signRoutes);
+await app.register(editRoutes);
+await app.register(scanRoutes);
 
 app.get('/api/health', async () => ({ ok: true, web: deployed?.version ?? null }));
 
@@ -62,3 +67,5 @@ if (process.env.SERVE_WEB === '1') {
 }
 
 await app.listen({ port: config.port, host: config.host });
+startScanWorker(app.log);
+startAdminNotifier(app.log);

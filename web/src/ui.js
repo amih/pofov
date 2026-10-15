@@ -56,3 +56,17 @@ export function avatarHtml({ avatar, screen_name, name }, size = 32) {
   const color = AVATAR_COLORS[[...label].reduce((a, c) => a + c.codePointAt(0), 0) % AVATAR_COLORS.length];
   return `<span class="avatar letter" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.45)}px;background:${color}">${esc([...label][0]?.toUpperCase() ?? '?')}</span>`;
 }
+
+// "Nothing is required" box; hidden for good once dismissed.
+const NOTE_KEY = 'pofov:nostrings';
+export function noStringsNote() {
+  try { if (localStorage.getItem(NOTE_KEY)) return ''; } catch { /* show it */ }
+  return `<div class="card nostrings"><strong>${t('how.title')}</strong><p>${t('how.body_html')}</p>
+    <button class="link" data-dismiss-nostrings>${t('how.dismiss')}</button></div>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-dismiss-nostrings]');
+  if (!b) return;
+  try { localStorage.setItem(NOTE_KEY, '1'); } catch { /* session only */ }
+  b.closest('.nostrings')?.remove();
+});
