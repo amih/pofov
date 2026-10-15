@@ -107,12 +107,12 @@ export default async function authRoutes(app) {
     const link = `${config.baseUrl}/api/auth/verify?t=${token}`;
     const mail = req.body?.lang === 'en'
       ? {
-          subject: 'Your POFOV sign-in link',
-          text: `Tap to sign in to POFOV:\n\n${link}\n\nThe link works once and expires in ${LOGIN_TOKEN_MINUTES} minutes.\nIf you did not ask for it, ignore this email.`,
+          subject: 'Your Seferehov sign-in link',
+          text: `Tap to sign in to Seferehov:\n\n${link}\n\nThe link works once and expires in ${LOGIN_TOKEN_MINUTES} minutes.\nIf you did not ask for it, ignore this email.`,
         }
       : {
-          subject: 'קישור הכניסה שלך ל־POFOV',
-          text: `לכניסה ל־POFOV הקישו על הקישור:\n\n${link}\n\nהקישור עובד פעם אחת, ותוקפו ${LOGIN_TOKEN_MINUTES} דקות.\nאם לא ביקשתם אותו, אפשר להתעלם מהמייל הזה.`,
+          subject: 'קישור הכניסה שלך לספרחוב',
+          text: `לכניסה לספרחוב הקישו על הקישור:\n\n${link}\n\nהקישור עובד פעם אחת, ותוקפו ${LOGIN_TOKEN_MINUTES} דקות.\nאם לא ביקשתם אותו, אפשר להתעלם מהמייל הזה.`,
         };
     await sendMail({ to: email, ...mail }, req.log);
     return { ok: true };

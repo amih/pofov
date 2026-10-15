@@ -22,7 +22,7 @@ SELECT ?o ?c ${vars} WHERE {
 }`;
   const res = await fetch(QLEVER, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/sparql-results+json', 'User-Agent': 'POFOV seed (https://pofov.com)' },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/sparql-results+json', 'User-Agent': 'Seferehov seed (https://pofov.com)' },
     body: 'query=' + encodeURIComponent(query),
     signal: AbortSignal.timeout(600_000),
   });

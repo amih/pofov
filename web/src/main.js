@@ -2,7 +2,7 @@ import './style.css';
 import { initUpdates, maybeApply } from './update.js';
 import { startQueue, onQueueChange, flush } from './queue.js';
 import { toast, avatarHtml } from './ui.js';
-import { getMe } from './api.js';
+import { api, getMe } from './api.js';
 import { navigate } from './nav.js';
 import { trackPageView } from './analytics.js';
 import { t, lang, applyLang, toggleLang } from './i18n.js';
@@ -60,6 +60,7 @@ async function render() {
   }
   trackPageView();
   cleanup = (await view(main, params.slice(1), new URLSearchParams(location.search))) || null;
+  showReadyBanner(me, path);
 }
 
 
@@ -80,6 +81,21 @@ const showBadge = () => { badge.hidden = !queued; badge.textContent = t('queue.w
 onQueueChange((n) => { queued = n; showBadge(); });
 
 // Static shell text; views re-render themselves on a language change.
+// "Books from your photos are ready" — reading takes minutes, users wander off.
+async function showReadyBanner(me, path) {
+  document.getElementById('ready')?.remove();
+  if (!me || path === '/' || path.startsWith('/scan/')) return;
+  let scans = [];
+  try { ({ scans } = await api('/api/scans/ready')); } catch { return; }
+  if (!scans.length || document.getElementById('ready')) return;
+  const a = document.createElement('a');
+  a.id = 'ready';
+  a.className = 'ready-banner';
+  a.href = `/scan/${scans[0].id}`;
+  a.textContent = t('banner.ready');
+  main.prepend(a);
+}
+
 function translateShell() {
   document.querySelectorAll('[data-t]').forEach((el) => { el.textContent = t(el.dataset.t); });
   const btn = document.getElementById('lang');

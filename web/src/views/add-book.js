@@ -2,8 +2,8 @@ import { api, getMe } from '../api.js';
 import { enqueue } from '../queue.js';
 import { navigate } from '../nav.js';
 import { startScanner, scanImage } from '../scanner.js';
-import { esc, getPosition, shrinkImage, toast, noStringsNote } from '../ui.js';
-import { t } from '../i18n.js';
+import { esc, getPosition, shrinkImage, toast, noStringsNote, dialog } from '../ui.js';
+import { t, lang } from '../i18n.js';
 
 export default async function addBookView(root, [code]) {
   const me = await getMe();
@@ -24,6 +24,7 @@ export default async function addBookView(root, [code]) {
       <label class="btn primary">${t('addbook.shelf_photos')}<input type="file" accept="image/*" capture="environment" multiple hidden id="shelf"></label>
       <label class="btn">${t('addbook.shelf_video')}<input type="file" accept="video/*" capture="environment" hidden id="video"></label>
     </p>
+    <p class="muted small">⏱️ ${t('addbook.limits')}</p>
     <p id="upload" class="muted"></p>
 
     <h2>${t('addbook.barcode_title')}</h2>
@@ -162,7 +163,7 @@ export default async function addBookView(root, [code]) {
   const uploadText = root.querySelector('#upload');
   async function uploadScan(files) {
     const url = `/api/locations/${code}/scans`;
-    const fields = { kind: mode, lat: pos?.lat ?? '', lon: pos?.lon ?? '' };
+    const fields = { kind: mode, lang: lang(), lat: pos?.lat ?? '', lon: pos?.lon ?? '' };
     if (!navigator.onLine) {
       await enqueue(url, fields, files, 'shelf');
       toast(t('addbook.queued_offline'));
@@ -174,7 +175,16 @@ export default async function addBookView(root, [code]) {
     uploadText.textContent = t('addbook.uploading');
     try {
       const { scan } = await api(url, { method: 'POST', form: fd });
-      navigate(`/scan/${scan.id}`);
+      uploadText.textContent = '';
+      // ~2.5 min per photo (spine by spine), ~4 min per video, plus the queue ahead.
+      const mins = Math.max(2, Math.round(scan.images * 2.5 + (scan.video ? 4 : 0) + scan.ahead * 3));
+      const watch = await dialog({
+        title: t('scan.sent_title'),
+        html: `<p>${t('scan.sent_body', { mins, ahead: scan.ahead })}</p>`,
+        ok: t('scan.sent_watch'),
+        cancel: t('scan.sent_back'),
+      });
+      navigate(watch ? `/scan/${scan.id}` : `/l/${code}`);
     } catch (e) {
       uploadText.textContent = '';
       if (e.status === 413) toast(t('addbook.too_large'));

@@ -1,4 +1,6 @@
-# POFOV — Pass On, Find Other Volumes
+# ספרחוב · Seferehov
+
+A shared map of free street libraries and the books on their shelves. Runs at pofov.com.
 
 A shared map of free street libraries (book boxes, little free libraries, shelves in lobbies and parks) and the books on their shelves right now. Installable as an app on any phone (PWA).
 

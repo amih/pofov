@@ -1,7 +1,7 @@
 {
   "name": "pofov",
   "private": true,
-  "description": "POFOV — Pass On, Find Other Volumes. Crowd-sourced map of free street libraries.",
+  "description": "ספרחוב (Seferehov) — crowd-sourced map of free street libraries.",
   "workspaces": ["server", "web"],
   "scripts": {
     "db:up": "docker compose up -d db",

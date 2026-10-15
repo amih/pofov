@@ -3,6 +3,7 @@ import { navigate } from '../nav.js';
 import { esc, timeAgo, toast } from '../ui.js';
 import { t } from '../i18n.js';
 
+const flag = (f) => (f ? `<p class="note">⚠️ ${t('review.private')}: ${(f.snippets ?? []).map((x) => `<mark>${esc(x)}</mark>`).join(' ')} <span class="muted small">${esc(f.reason ?? '')}</span></p>` : '');
 const yesNo = (v) => t(v ? 'review.yes' : 'review.no');
 
 // Old → new for each changed field.
@@ -31,7 +32,7 @@ export default async function reviewView(root) {
     <ul class="review">${locations.map((l) => `
       <li data-type="location" data-id="${l.id}">
         ${l.thumb ? `<img src="${l.thumb}" alt="">` : '<span class="noimg"></span>'}
-        <div><strong>${esc(l.name || t('review.noname'))}</strong> ${l.restricted ? '🔒' : ''}<br>
+        <div>${flag(l.privacy_flag)}<strong>${esc(l.name || t('review.noname'))}</strong> ${l.restricted ? '🔒' : ''}<br>
           <span>${esc(l.description || '')}</span><br>
           <span class="muted">${who(l)} · ${timeAgo(l.created_at)} ·
           <a href="https://www.openstreetmap.org/?mlat=${l.lat}&mlon=${l.lon}#map=19/${l.lat}/${l.lon}" target="_blank" rel="noopener">${t('review.map')}</a></span></div>
@@ -41,7 +42,7 @@ export default async function reviewView(root) {
     <ul class="review">${edits.map((e) => `
       <li data-type="edit" data-id="${e.id}">
         ${e.new_thumb ? `<img src="${e.new_thumb}" alt="">` : e.old_thumb ? `<img src="${e.old_thumb}" alt="">` : '<span class="noimg"></span>'}
-        <div><strong><a href="/l/${e.code}">${esc(e.name || e.code)}</a></strong><br>
+        <div>${flag(e.privacy_flag)}<strong><a href="/l/${e.code}">${esc(e.name || e.code)}</a></strong><br>
           ${editLines(e)}
           ${e.note ? `<span>💬 ${esc(e.note)}</span><br>` : ''}
           <span class="muted">${who(e)} · ${timeAgo(e.created_at)}</span></div>

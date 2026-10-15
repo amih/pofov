@@ -1,4 +1,6 @@
-# POFOV
+# ספרחוב (Seferehov)
+
+- App name: ספרחוב in Hebrew, Seferehov in English. pofov.com is only the domain; never call the app POFOV.
 
 - Never bump versions by hand: the build derives the version from time + git sha. Commit before deploying (`deploy/deploy.sh` refuses a dirty tree).
 - Real hostnames, IPs, and SSH targets go only in gitignored `*.private` / `*.private.md` files (this repo is public).

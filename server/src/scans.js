@@ -12,6 +12,7 @@ import { pickFrames } from './frames.js';
 import { locationByCode, visibleTo, distanceTo, splitAuthors } from './locations.js';
 import { initialStatus, award, pointsForSighting } from './moderation.js';
 import { parseLatLon } from './util.js';
+import { sendMail } from './mail.js';
 
 // Raw uploads (may carry GPS in EXIF) live outside the public uploads folder and
 // are deleted once read. Only re-encoded thumbnails go to uploads/.
@@ -60,25 +61,45 @@ export default async function scanRoutes(app) {
     }
     const distance = await distanceTo(loc.id, parseLatLon(fields.lat, fields.lon));
     const kind = fields.kind === 'added' ? 'added' : 'seen';
+    const lang = fields.lang === 'en' ? 'en' : 'he';
     await q(
-      `INSERT INTO scans(id, location_id, user_id, kind, media, distance_m) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, loc.id, req.user.id, kind, JSON.stringify(media), distance],
+      `INSERT INTO scans(id, location_id, user_id, kind, media, distance_m, lang) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, loc.id, req.user.id, kind, JSON.stringify(media), distance, lang],
     );
     wake();
-    return { scan: { id, status: 'queued' } };
+    const ahead = (await one(`SELECT count(*)::int AS n FROM scans WHERE status IN ('queued','processing') AND id <> $1`, [id])).n;
+    return { scan: { id, status: 'queued', images: media.filter((m) => m.type === 'image').length, video: media.some((m) => m.type === 'video'), ahead } };
   });
+
+  // Finished scans the user has not confirmed yet (for the in-app banner).
+  app.get('/api/scans/ready', { preHandler: requireUser() }, async (req) => ({
+    scans: await many(
+      `SELECT s.id, l.code FROM scans s JOIN locations l ON l.id = s.location_id
+        WHERE s.user_id = $1 AND s.status = 'done' AND s.finished_at > now() - interval '3 days'
+        ORDER BY s.finished_at DESC LIMIT 5`,
+      [req.user.id],
+    ),
+  }));
 
   app.get('/api/scans/:id', { preHandler: requireUser() }, async (req, reply) => {
     const scan = await ownScan(req);
     if (!scan) return reply.code(404).send({ error: 'not_found' });
     const items = await many(
-      `SELECT i.id, i.title, i.author, i.isbn13, i.via, i.matched, i.frame_path,
+      `SELECT i.id, i.title, i.author, i.isbn13, i.via, i.matched, i.frame_path, i.quality, i.crop_path,
               b.id AS book_id, b.title AS book_title, b.authors AS book_authors, b.cover_url, b.year
          FROM scan_items i LEFT JOIN books b ON b.id = i.book_id
         WHERE i.scan_id = $1 ORDER BY i.id`,
       [scan.id],
     );
-    for (const i of items) { i.frame = i.frame_path && `/uploads/${i.frame_path}`; delete i.frame_path; }
+    for (const i of items) {
+      i.frame = i.frame_path && `/uploads/${i.frame_path}`;
+      i.crop = i.crop_path && `/uploads/${i.crop_path}`;
+      delete i.frame_path; delete i.crop_path;
+    }
+    // They have seen the result: no "ready" email needed.
+    if (['done', 'failed'].includes(scan.status) && !scan.notified_at && scan.user_id === req.user.id) {
+      await q('UPDATE scans SET notified_at = now() WHERE id = $1', [scan.id]);
+    }
     const ahead = scan.status === 'queued'
       ? (await one(`SELECT count(*)::int AS n FROM scans WHERE status IN ('queued','processing') AND created_at < $1`, [scan.created_at])).n
       : 0;
@@ -86,6 +107,14 @@ export default async function scanRoutes(app) {
       scan: { id: scan.id, code: scan.code, kind: scan.kind, status: scan.status, progress: scan.progress, error: scan.error, ahead, created_at: scan.created_at },
       items,
     };
+  });
+
+  // "Not now": drop the results without adding anything.
+  app.post('/api/scans/:id/dismiss', { preHandler: requireUser() }, async (req, reply) => {
+    const scan = await ownScan(req);
+    if (!scan) return reply.code(404).send({ error: 'not_found' });
+    await q(`UPDATE scans SET status = 'dismissed' WHERE id = $1 AND status IN ('done','failed')`, [scan.id]);
+    return { ok: true };
   });
 
   // The user ticks the books that really are there; they become sightings.
@@ -149,7 +178,37 @@ let log = console;
 export function startScanWorker(logger) {
   log = logger;
   q(`UPDATE scans SET status = 'queued' WHERE status = 'processing'`).then(wake).catch((err) => log.error({ err }, 'scan reset'));
-  setInterval(wake, 60_000).unref();
+  setInterval(() => { wake(); emailFinished().catch((err) => log.error({ err }, 'scan email')); }, 60_000).unref();
+}
+
+const READY_TEXT = {
+  he: {
+    done: { subject: 'הספרים מהתמונות שלך מוכנים לאישור', body: (n, url) => `קראנו את התמונות ששלחת ומצאנו ${n} ספרים.\nבדקו ואשרו אותם כאן:\n\n${url}\n\nספרחוב` },
+    failed: { subject: 'לא הצלחנו לקרוא את התמונות', body: (_, url) => `לא הצלחנו לקרוא את התמונות ששלחת. אפשר לנסות שוב, מקרוב יותר ובאור טוב:\n\n${url}\n\nספרחוב` },
+  },
+  en: {
+    done: { subject: 'Your shelf photos are ready to check', body: (n, url) => `We read the photos you sent and found ${n} books.\nCheck and confirm them here:\n\n${url}\n\nSeferehov` },
+    failed: { subject: 'We could not read your photos', body: (_, url) => `We could not read the photos you sent. You can try again, closer and with good light:\n\n${url}\n\nSeferehov` },
+  },
+};
+
+// The user may have closed the app while the photos were read: email them when a
+// result has waited 2 minutes without being opened and confirmed.
+async function emailFinished() {
+  const rows = await many(
+    `UPDATE scans s SET notified_at = now()
+       FROM users u, locations l
+      WHERE s.user_id = u.id AND l.id = s.location_id AND s.notified_at IS NULL
+        AND s.status IN ('done','failed') AND s.finished_at < now() - interval '2 minutes'
+        AND s.finished_at > now() - interval '1 day'
+      RETURNING s.id, s.status, s.lang, u.email, l.code,
+                (SELECT count(*)::int FROM scan_items i WHERE i.scan_id = s.id) AS n`,
+  );
+  for (const r of rows) {
+    const T = READY_TEXT[r.lang === 'en' ? 'en' : 'he'][r.status === 'done' && r.n ? 'done' : 'failed'];
+    const url = r.status === 'done' && r.n ? `${config.baseUrl}/scan/${r.id}` : `${config.baseUrl}/l/${r.code}/add`;
+    await sendMail({ to: r.email, subject: T.subject, text: T.body(r.n, url) }, log);
+  }
 }
 
 function wake() {
@@ -189,6 +248,15 @@ async function saveFrameThumb(buffer, scanId, i) {
   return rel;
 }
 
+// The cut-out spine, so the user can compare it with what we read.
+async function saveCropThumb(jpeg, scanId, n) {
+  const month = new Date().toISOString().slice(0, 7);
+  const rel = `${month}/scan-${scanId.slice(0, 8)}-c${n}.webp`;
+  await mkdir(join(config.uploadDir, month), { recursive: true });
+  await sharp(jpeg).resize(640, 160, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 75 }).toFile(join(config.uploadDir, rel));
+  return rel;
+}
+
 async function processScan(scan) {
   const dir = join(MEDIA_DIR, scan.id);
   await setProgress(scan.id, { step: 'frames' });
@@ -214,6 +282,8 @@ async function processScan(scan) {
       if ((item.title?.length ?? 0) > (hit.title?.length ?? 0)) hit.title = item.title;
       hit.author ||= item.author;
       hit.isbn ||= item.isbn;
+      if (hit.quality === 'low' && item.quality && item.quality !== 'low') hit.quality = item.quality;
+      hit.crop ||= item.crop;
       return;
     }
     found.push({ ...item, key, frames: new Set([i]) });
@@ -223,7 +293,7 @@ async function processScan(scan) {
     const frame = await saveFrameThumb(buf, scan.id, i);
     for (const isbn of await readIsbnBarcodes(buf)) add(`isbn:${isbn}`, { isbn, via: 'barcode', frame, fromVideo }, i);
     let books = [];
-    try { books = await readBooks(buf); } catch (err) { log.warn({ err, scan: scan.id }, 'vision failed on frame'); }
+    try { books = await readBooks(buf, { spines: !fromVideo }); } catch (err) { log.warn({ err, scan: scan.id }, 'vision failed on frame'); }
     for (const b of books) add(normTitle(b.title), { ...b, via: 'vision', frame, fromVideo }, i);
   }
 
@@ -243,14 +313,17 @@ async function processScan(scan) {
     // and found in no catalogue is most likely a misreading.
     if (!book && item.via === 'vision' && item.fromVideo && item.frames.size < 2) continue;
     const title = item.title || book?.title || (isbn && `ISBN ${isbn}`);
-    if (title) rows.push({ item, book, title, isbn });
+    const quality = book ? 'high' : item.quality === 'low' ? 'low' : 'medium';
+    if (title) rows.push({ item, book, title, isbn, quality });
   }
-  rows.sort((a, b) => Number(!!b.book) - Number(!!a.book)); // catalogue matches first
-  for (const { item, book, title, isbn } of rows) {
+  const rank = { high: 0, medium: 1, low: 2 };
+  rows.sort((a, b) => rank[a.quality] - rank[b.quality]); // surest first
+  for (const [n, { item, book, title, isbn, quality }] of rows.entries()) {
+    const crop = item.crop ? await saveCropThumb(item.crop, scan.id, n) : null;
     await q(
-      `INSERT INTO scan_items(scan_id, title, author, isbn13, book_id, via, matched, frame_path)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [scan.id, title, item.author ?? book?.authors?.[0] ?? null, book?.isbn13 ?? isbn ?? null, book?.id ?? null, item.via, !!book, item.frame],
+      `INSERT INTO scan_items(scan_id, title, author, isbn13, book_id, via, matched, frame_path, quality, crop_path)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [scan.id, title, item.author ?? book?.authors?.[0] ?? null, book?.isbn13 ?? isbn ?? null, book?.id ?? null, item.via, !!book, item.frame, quality, crop],
     );
   }
 }

@@ -20,10 +20,79 @@ async function prepare(buffer, angle) {
 const ANGLES = [0, 90, 270];
 
 // Reads books from one photo with the vision model. Returns [{title, author, isbn}].
-export async function readBooks(buffer) {
+// Photos: one whole-image read plus each spine cut out and read on its own (far
+// better for Hebrew, which needs the pixels). Video frames: whole image at three
+// angles (cheaper; the many overlapping frames make up for it).
+export async function readBooks(buffer, { spines = true } = {}) {
   const all = [];
-  for (const angle of ANGLES) all.push(...await readOnce(await prepare(buffer, angle)));
+  if (!spines) {
+    for (const angle of ANGLES) all.push(...await readOnce(await prepare(buffer, angle)));
+    return mergeBooks(all);
+  }
+  // Spine-by-spine reads come first: they are the more accurate ones.
+  try { all.push(...await readSpines(buffer)); } catch { /* keep the whole-image read */ }
+  all.push(...await readOnce(await prepare(buffer, 0)));
   return mergeBooks(all);
+}
+
+async function generate(jpeg, prompt, numPredict) {
+  const res = await fetch(`${config.vision.url}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.vision.model, prompt, images: [jpeg.toString('base64')], stream: false, think: false,
+      keep_alive: '3m', options: { num_ctx: 8192, num_predict: numPredict, temperature: 0, repeat_penalty: 1.1 },
+    }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!res.ok) throw new Error(`vision ${res.status}`);
+  return (await res.json()).response ?? '';
+}
+
+const MAX_SPINES = 30;
+const SPINE_PROMPT = 'This is one book spine or cover. Read its title and author exactly as printed, in the original language and script. Answer one line: TITLE | AUTHOR. If unreadable answer NONE.';
+const iou = (a, b) => {
+  const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+  const h = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+  if (w <= 0 || h <= 0) return 0;
+  const inter = w * h;
+  return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter);
+};
+// Vowel points mostly show up when the model guesses at Hebrew it cannot read.
+const niqqud = (s) => (s.match(/[\u05B0-\u05BC\u05C1\u05C2]/g) ?? []).length;
+
+async function readSpines(buffer) {
+  const base = sharp(buffer).rotate();
+  const { width: W, height: H } = await base.clone().toBuffer({ resolveWithObject: true }).then((r) => r.info);
+  const small = await base.clone().resize(1280, 1280, { fit: 'inside' }).jpeg({ quality: 88 }).toBuffer();
+  const out = await generate(small, 'Locate every individual book spine or book cover in this image. Output JSON list: [{"bbox_2d":[x1,y1,x2,y2]}]', 1500);
+  // Qwen3-VL answers in 0–1000 coordinates relative to the image.
+  let boxes = [...out.matchAll(/"bbox_2d"\s*:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/g)]
+    .map((m) => m.slice(1, 5).map(Number))
+    .map(([x1, y1, x2, y2]) => [x1 * W / 1000, y1 * H / 1000, x2 * W / 1000, y2 * H / 1000])
+    .filter(([x1, y1, x2, y2]) => x2 - x1 > 10 && y2 - y1 > 10);
+  boxes = boxes.filter((b, i) => !boxes.slice(0, i).some((o) => iou(o, b) > 0.6)).slice(0, MAX_SPINES);
+
+  const books = [];
+  for (const [x1, y1, x2, y2] of boxes) {
+    const pad = 8;
+    const left = Math.max(0, Math.floor(x1 - pad));
+    const top = Math.max(0, Math.floor(y1 - pad));
+    const crop = base.clone().extract({ left, top, width: Math.min(W - left, Math.ceil(x2 - x1 + 2 * pad)), height: Math.min(H - top, Math.ceil(y2 - y1 + 2 * pad)) })
+      .resize(1280, 1280, { fit: 'inside', withoutEnlargement: true });
+    const vertical = y2 - y1 > (x2 - x1) * 1.3;
+    // Spine text runs top-to-bottom on most books; try that first, then the other way.
+    let best = null;
+    for (const angle of vertical ? [270, 90] : [0]) {
+      const jpeg = await crop.clone().rotate(angle).jpeg({ quality: 90 }).toBuffer();
+      const line = (await generate(jpeg, SPINE_PROMPT, 80)).trim().split('\n')[0];
+      const [b] = /^NONE\b/i.test(line) ? [] : parseBooks(line);
+      if (b && (!best || (best.quality === 'low' && b.quality !== 'low'))) best = { ...b, crop: jpeg };
+      if (best && best.quality !== 'low') break;
+    }
+    if (best) books.push(best);
+  }
+  return books;
 }
 
 // Streams the answer and stops early when the model starts looping (small vision
@@ -92,7 +161,7 @@ export function parseBooks(text) {
     const title = clean(rawTitle);
     if (!title || title.length < 2 || /^title$/i.test(title)) continue;
     const isbnDigits = String(rawIsbn ?? '').replace(/[^0-9X]/gi, '');
-    out.push({ title, author: clean(rawAuthor) || null, isbn: isbnDigits.length >= 10 ? isbnDigits : null });
+    out.push({ title, author: clean(rawAuthor) || null, isbn: isbnDigits.length >= 10 ? isbnDigits : null, quality: readQuality(line) });
   }
   return mergeBooks(out);
 }
@@ -108,14 +177,27 @@ export function mergeBooks(books) {
       return ok === k || (Math.min(ok.length, k.length) >= 6 && (ok.includes(k) || k.includes(ok)));
     });
     if (!dup) { out.push({ ...b }); continue; }
-    if (b.title.length > dup.title.length) dup.title = b.title;
+    if (dup.quality === 'low' && b.quality !== 'low') Object.assign(dup, { title: b.title, author: b.author || dup.author, quality: b.quality });
+    else if (b.title.length > dup.title.length && b.quality !== 'low') dup.title = b.title;
     dup.author ||= b.author;
     dup.isbn ||= b.isbn;
+    dup.crop ||= b.crop;
   }
   return out.slice(0, MAX_LINES);
 }
 
-const clean = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 300) : '');
+// Printed Hebrew titles almost never carry vowel points; the model adds them when it
+// guesses. Strip them (better catalogue matches) and remember the read was shaky.
+const clean = (v) => (typeof v === 'string' ? v.replace(/[\u0591-\u05C7]/g, '').replace(/\s+/g, ' ').trim().slice(0, 300) : '');
+
+// low = probably garbled: guessed vowel points, stray symbols, or too short.
+export function readQuality(raw) {
+  const s = String(raw ?? '');
+  const letters = (s.match(/\p{L}/gu) ?? []).length;
+  const odd = (s.match(/[^\p{L}\p{N}\s.,:;'"’\-–&!?()]/gu) ?? []).length;
+  if (niqqud(s) >= 3 || letters < 3 || odd > 2) return 'low';
+  return 'medium';
+}
 
 // For matching: lower case, no punctuation, no Hebrew vowel points.
 export const normTitle = (s) => String(s ?? '').toLowerCase()

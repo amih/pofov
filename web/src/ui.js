@@ -13,6 +13,36 @@ export function toast(text, ms = 3500) {
   setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, ms);
 }
 
+// Modal with up to two buttons. Resolves true for `ok`, false for `cancel`/dismiss.
+export function dialog({ title, html, ok, cancel }) {
+  return new Promise((resolve) => {
+    const el = document.createElement('div');
+    el.className = 'dialog-back';
+    el.innerHTML = `<div class="dialog" role="dialog" aria-modal="true">
+      ${title ? `<h2>${esc(title)}</h2>` : ''}<div class="dialog-body">${html}</div>
+      <div class="dialog-actions">${ok ? `<button class="btn primary" data-r="1">${esc(ok)}</button>` : ''}${cancel ? `<button class="btn" data-r="0">${esc(cancel)}</button>` : ''}</div></div>`;
+    const close = (r) => { el.remove(); resolve(r); };
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-r]');
+      if (b) close(b.dataset.r === '1');
+      else if (e.target === el) close(false);
+    });
+    document.body.append(el);
+    el.querySelector('[data-r]')?.focus();
+  });
+}
+
+// Shown when a library name/hint looks like it holds a door code, phone number etc.
+// Resolves true when the user insists it is fine (a reviewer will still check).
+export function privacyDialog(snippets = []) {
+  return dialog({
+    title: t('privacy.title'),
+    html: `<p>${t('privacy.body')}</p>${snippets.length ? `<ul class="snips">${snippets.map((x) => `<li><mark>${esc(x)}</mark></li>`).join('')}</ul>` : ''}<p class="muted small">${t('privacy.note')}</p>`,
+    ok: t('privacy.fix'),
+    cancel: t('privacy.send_anyway'),
+  }).then((fix) => !fix);
+}
+
 export function timeAgo(iso) {
   const s = (Date.now() - new Date(iso)) / 1000;
   if (s < 90) return t('time.just_now');

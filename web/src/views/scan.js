@@ -39,7 +39,7 @@ export default async function scanView(root, [id]) {
       <section class="page">
         <h1>${t('scan.title')}</h1>
         <p class="note">${msg}</p>
-        <p><a class="btn" href="/l/${scan.code}">${t('back.library')}</a> <a class="btn" href="/l/${scan.code}/add">${t('loc.add_books')}</a></p>
+        <p class="row"><a class="btn primary" href="/l/${scan.code}/add">${t('scan.retake')}</a> <a class="btn" href="/l/${scan.code}">${t('back.library')}</a></p>
       </section>`;
       return;
     }
@@ -52,24 +52,39 @@ export default async function scanView(root, [id]) {
       <p><a href="/l/${scan.code}">${t('back.library')}</a></p>
       <h1>${t('scan.title')}</h1>
       <p class="muted">${t('scan.lead')}</p>
+      <p class="legend">
+        <span class="q high">✓ ${t('scan.q.high')} <b>${items.filter((i) => i.quality === 'high').length}</b></span>
+        <span class="q medium">? ${t('scan.q.medium')} <b>${items.filter((i) => i.quality === 'medium').length}</b></span>
+        <span class="q low">⚠ ${t('scan.q.low')} <b>${items.filter((i) => i.quality === 'low').length}</b></span>
+      </p>
       <div class="seg" id="kind">
         <button data-k="seen" class="${scan.kind === 'seen' ? 'on' : ''}">${t('scan.as_seen')}</button>
         <button data-k="added" class="${scan.kind === 'added' ? 'on' : ''}">${t('scan.as_added')}</button>
       </div>
       <ul class="scan-items">
         ${items.map((i) => `
-        <li data-id="${i.id}" class="${i.matched ? 'matched' : 'unmatched'}">
-          <input type="checkbox" ${i.matched ? 'checked' : ''} aria-label="✓">
+        <li data-id="${i.id}" class="${i.matched ? 'matched' : 'unmatched'} q-${i.quality}">
+          <input type="checkbox" ${i.quality !== 'low' ? 'checked' : ''} aria-label="✓">
           ${i.cover_url ? `<img src="${esc(i.cover_url)}" alt="" loading="lazy">` : i.frame ? `<img src="${esc(i.frame)}" alt="${t('scan.photo_of')}" loading="lazy" class="frame">` : '<div class="nocover">📖</div>'}
           <div class="fields">
             <input name="title" dir="auto" value="${esc(i.matched ? i.book_title : i.title)}" maxlength="300">
             <input name="author" dir="auto" value="${esc(i.matched ? (i.book_authors ?? []).join(', ') : (i.author ?? ''))}" maxlength="200" placeholder="${t('field.author')}">
-            <span class="muted small">${i.matched ? `✓ ${t('scan.matched')}${i.year ? ` · ${i.year}` : ''}` : t('scan.unmatched')}${i.via === 'barcode' ? ` · ${t('scan.barcode')}` : ''}</span>
+            <span class="small qline">${i.quality === 'high' ? `✓ ${t('scan.matched')}${i.year ? ` · ${i.year}` : ''}` : i.quality === 'low' ? `⚠ ${t('scan.lowq')}` : `? ${t('scan.unmatched')}`}${i.via === 'barcode' ? ` · ${t('scan.barcode')}` : ''}</span>
+            ${i.crop ? `<img class="crop" src="${esc(i.crop)}" alt="${t('scan.photo_of')}" loading="lazy">` : ''}
           </div>
         </li>`).join('')}
       </ul>
       <button class="btn primary big" id="confirm"></button>
+      <p class="row">
+        <a class="btn" href="/l/${scan.code}/add">${t('scan.more')}</a>
+        <button class="btn" id="dismiss">${t('scan.dismiss')}</button>
+      </p>
+      <p class="muted small">${t('scan.more_note')}</p>
     </section>`;
+    root.querySelector('#dismiss').onclick = async () => {
+      try { await api(`/api/scans/${id}/dismiss`, { method: 'POST', json: {} }); } catch { /* go back anyway */ }
+      navigate(`/l/${scan.code}`, { replace: true });
+    };
 
     let kind = scan.kind;
     const btn = root.querySelector('#confirm');

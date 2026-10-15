@@ -19,10 +19,10 @@ async function notifyAdmins(log) {
 
   const by = `COALESCE(u.screen_name, 'Reader #' || u.id)`;
   const locations = await many(
-    `SELECT l.code, l.name, l.description, ${by} AS who FROM locations l LEFT JOIN users u ON u.id = l.created_by
+    `SELECT l.code, l.name, l.description, l.privacy_flag, ${by} AS who FROM locations l LEFT JOIN users u ON u.id = l.created_by
       WHERE l.status = 'pending' AND l.created_at > $1 ORDER BY l.created_at`, [since]);
   const edits = await many(
-    `SELECT l.code, l.name, e.changes, ${by} AS who FROM location_edits e JOIN locations l ON l.id = e.location_id
+    `SELECT l.code, l.name, e.changes, e.privacy_flag, ${by} AS who FROM location_edits e JOIN locations l ON l.id = e.location_id
        LEFT JOIN users u ON u.id = e.user_id
       WHERE e.status = 'pending' AND e.created_at > $1 ORDER BY e.created_at`, [since]);
   const sightings = await one(
@@ -37,14 +37,14 @@ async function notifyAdmins(log) {
   const lines = [];
   if (locations.length) {
     lines.push(`New libraries (${locations.length}):`);
-    for (const l of locations) lines.push(`  • ${l.name || '(no name)'} — by ${l.who}\n    ${l.description ? l.description.slice(0, 120) + '\n    ' : ''}${link(l.code)}`);
+    for (const l of locations) lines.push(`  • ${l.privacy_flag ? '⚠️ PRIVATE INFO? ' : ''}${l.name || '(no name)'} — by ${l.who}\n    ${l.description ? l.description.slice(0, 120) + '\n    ' : ''}${link(l.code)}`);
     lines.push('');
   }
   if (edits.length) {
     lines.push(`Library changes (${edits.length}):`);
     for (const e of edits) {
       const what = Object.keys(e.changes).filter((k) => k !== 'moved_m').map((k) => (k === 'photo_id' ? 'photo' : k === 'lat' ? `moved ${e.changes.moved_m} m` : k)).filter((k) => k !== 'lon');
-      lines.push(`  • ${e.name || e.code}: ${what.join(', ')} — by ${e.who}\n    ${link(e.code)}`);
+      lines.push(`  • ${e.privacy_flag ? '⚠️ PRIVATE INFO? ' : ''}${e.name || e.code}: ${what.join(', ')} — by ${e.who}\n    ${link(e.code)}`);
     }
     lines.push('');
   }
@@ -52,7 +52,7 @@ async function notifyAdmins(log) {
   if (users.length) lines.push(`New users (${users.length}): ${users.map((u) => u.who).join(', ')}`, '');
   lines.push(`Review queue: ${config.baseUrl}/review`);
 
-  const subject = `POFOV: ${[
+  const subject = `Seferehov: ${[
     locations.length && `${locations.length} new ${locations.length === 1 ? 'library' : 'libraries'}`,
     edits.length && `${edits.length} library ${edits.length === 1 ? 'change' : 'changes'}`,
     sightings.n && `${sightings.n} book ${sightings.n === 1 ? 'report' : 'reports'}`,

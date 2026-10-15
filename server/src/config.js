@@ -11,6 +11,10 @@ export const config = {
   webDist: resolve(env.WEB_DIST || '../web/dist'),
   adminEmails: (env.ADMIN_EMAILS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
   minClientBuild: Number(env.MIN_CLIENT_BUILD || 0),
+  // National Library of Israel search API key (free: https://api2.nli.org.il). Optional.
+  nliApiKey: env.NLI_API_KEY || '',
+  // Google Books API key (free, 1000 lookups/day). Optional but the keyless quota runs out.
+  googleBooksKey: env.GOOGLE_BOOKS_API_KEY || '',
   trustThreshold: Number(env.TRUST_THRESHOLD || 5),
   // 1 = every new library and every library change waits for a reviewer (admins excepted).
   reviewAllLocations: (env.REVIEW_ALL_LOCATIONS ?? '1') === '1',
@@ -20,6 +24,8 @@ export const config = {
     url: (env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, ''),
     model: env.VISION_MODEL || 'qwen3-vl:8b-instruct',
   },
+  // Checks public texts for door codes, phone numbers etc. Same model = no GPU swap.
+  privacyModel: env.PRIVACY_MODEL || env.VISION_MODEL || 'qwen3-vl:8b-instruct',
   google: {
     clientId: env.GOOGLE_CLIENT_ID || '',
     clientSecret: env.GOOGLE_CLIENT_SECRET || '',
@@ -29,7 +35,7 @@ export const config = {
     port: Number(env.SMTP_PORT || 587),
     user: env.SMTP_USER || '',
     pass: env.SMTP_PASS || '',
-    from: env.MAIL_FROM || 'POFOV <noreply@example.com>',
+    from: env.MAIL_FROM || 'Seferehov <noreply@example.com>',
   },
   // Sightings reported from farther than this go to review even for trusted users.
   maxReportDistanceM: 300,

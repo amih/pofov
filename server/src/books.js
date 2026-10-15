@@ -1,8 +1,9 @@
 import { one } from './db.js';
 import { normalizeIsbn } from './util.js';
 import { normTitle } from './vision.js';
+import { config } from './config.js';
 
-const UA = 'POFOV/0.1 (https://pofov.com)';
+const UA = 'Seferehov/0.1 (https://pofov.com)';
 
 async function getJson(url) {
   const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(8000) });
@@ -28,7 +29,7 @@ async function fromOpenLibrary(isbn) {
 }
 
 async function fromGoogleBooks(isbn) {
-  const data = await getJson(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+  const data = await getJson(gbUrl(`q=isbn:${isbn}`));
   const item = data?.items?.[0];
   const v = item?.volumeInfo;
   if (!v?.title) return null;
@@ -44,7 +45,46 @@ async function fromGoogleBooks(isbn) {
   };
 }
 
-// Finds a book by ISBN: local table first, then Open Library, then Google Books.
+// National Library of Israel (legal deposit for every book published in Israel).
+// Needs a free key from https://api2.nli.org.il (NLI_API_KEY); skipped without one.
+const DC = 'http://purl.org/dc/elements/1.1/';
+const dc = (item, k) => (item[DC + k] ?? []).map((v) => v['@value']).filter(Boolean);
+
+async function nliSearch(query) {
+  if (!config.nliApiKey) return [];
+  const url = `https://api.nli.org.il/openlibrary/search?api_key=${encodeURIComponent(config.nliApiKey)}`
+    + `&query=${encodeURIComponent(query)}&material_type=books&output_format=json&limit=10`;
+  const data = await getJson(url);
+  return (Array.isArray(data) ? data : []).map((item) => {
+    const isbn = dc(item, 'identifier').map((x) => normalizeIsbn(x.replace(/\(.*\)/, ''))).find(Boolean) ?? null;
+    return {
+      title: dc(item, 'title')[0]?.replace(/\s*[/:]\s*$/, ''),
+      authors: dc(item, 'creator').map((a) => a.replace(/\s*\$\$.*$/, '').replace(/,?\s*\d{4}-(\d{4})?\.?$/, '').trim()),
+      publisher: dc(item, 'publisher')[0] ?? null,
+      year: Number(String(dc(item, 'date')[0] ?? dc(item, 'non_standard_date')[0] ?? '').match(/\d{4}/)?.[0]) || null,
+      language: dc(item, 'language')[0] ?? null,
+      cover_url: dc(item, 'thumbnail')[0] ?? null,
+      isbn,
+      source: 'nli',
+      source_ids: { nli: dc(item, 'recordid')[0] ?? item['@id'] },
+    };
+  }).filter((b) => b.title);
+}
+
+async function fromNli(isbn) {
+  const hit = (await nliSearch(`any,contains,${isbn}`)).find((b) => !b.isbn || b.isbn === isbn);
+  if (!hit) return null;
+  const { isbn: _, ...meta } = hit;
+  return meta;
+}
+
+// Without a key Google Books shares a small anonymous daily quota with the world.
+const gbUrl = (qs) => `https://www.googleapis.com/books/v1/volumes?${qs}${config.googleBooksKey ? `&key=${encodeURIComponent(config.googleBooksKey)}` : ''}`;
+
+const isHebrew = (s) => /[\u0590-\u05FF]/.test(s ?? '');
+
+// Finds a book by ISBN: local table first, then Open Library, Google Books, and the
+// National Library of Israel (Israeli ISBNs start 978-965).
 // Returns { book } or { book: null, isbn } when nothing was found.
 export async function lookupIsbn(raw) {
   const isbn = normalizeIsbn(raw);
@@ -53,7 +93,8 @@ export async function lookupIsbn(raw) {
   if (existing) return { book: existing };
 
   let meta = null;
-  for (const src of [fromOpenLibrary, fromGoogleBooks]) {
+  const sources = isbn.startsWith('978965') ? [fromNli, fromGoogleBooks, fromOpenLibrary] : [fromOpenLibrary, fromGoogleBooks, fromNli];
+  for (const src of sources) {
     try { meta = await src(isbn); } catch { meta = null; }
     if (meta) break;
   }
@@ -103,10 +144,16 @@ export async function lookupTitle(title, author) {
 }
 
 async function searchTitle(title, author) {
-  const q = [`intitle:${title}`, author && `inauthor:${author}`].filter(Boolean).join(' ');
   const candidates = [];
+  // Hebrew titles: the National Library has nearly every Israeli book.
+  if (isHebrew(title)) {
+    try {
+      for (const b of await nliSearch(`title,contains,${title}`)) candidates.push({ ...b, bare: b.title });
+    } catch { /* fall through to Google Books */ }
+  }
+  const q = [`intitle:${title}`, author && `inauthor:${author}`].filter(Boolean).join(' ');
   try {
-    const gb = await getJson(`https://www.googleapis.com/books/v1/volumes?maxResults=5&q=${encodeURIComponent(q)}`);
+    const gb = await getJson(gbUrl(`maxResults=5&q=${encodeURIComponent(q)}`));
     for (const item of gb?.items ?? []) {
       const v = item.volumeInfo;
       const isbn = v.industryIdentifiers?.find((i) => i.type === 'ISBN_13')?.identifier;

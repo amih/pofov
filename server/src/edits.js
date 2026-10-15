@@ -5,6 +5,7 @@ import { readForm } from './multipart.js';
 import { locationByCode, visibleTo } from './locations.js';
 import { locationStatus, audit } from './moderation.js';
 import { parseLatLon } from './util.js';
+import { checkPrivate } from './privacy.js';
 
 const MAX_MOVE_M = 2000; // a "move" farther than this is probably a different library
 
@@ -52,13 +53,18 @@ export default async function editRoutes(app) {
     if (files.photo) changes.photo_id = (await savePhoto(files.photo, { userId: req.user.id, kind: 'location' })).id;
     if (!Object.keys(changes).length) return reply.code(400).send({ error: 'no_changes' });
 
-    const status = locationStatus(req.user);
     const note = text(fields.note, 500);
+    const privacy = await checkPrivate(changes.name, changes.description, note);
+    if (privacy.flagged && fields.confirm_private !== '1') {
+      return reply.code(422).send({ error: 'private_info', snippets: privacy.snippets });
+    }
+    const status = privacy.flagged ? 'pending' : locationStatus(req.user);
     const edit = await tx(async (db) => {
       const row = (await db.query(
-        `INSERT INTO location_edits(location_id, user_id, changes, note, status, reviewed_by, reviewed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, status`,
-        [loc.id, req.user.id, changes, note, status, status === 'approved' ? req.user.id : null, status === 'approved' ? new Date() : null],
+        `INSERT INTO location_edits(location_id, user_id, changes, note, status, reviewed_by, reviewed_at, privacy_flag)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, status`,
+        [loc.id, req.user.id, changes, note, status, status === 'approved' ? req.user.id : null, status === 'approved' ? new Date() : null,
+         privacy.flagged ? { reason: privacy.reason, snippets: privacy.snippets } : null],
       )).rows[0];
       if (status === 'approved') await applyEdit(db, loc.id, changes);
       return row;

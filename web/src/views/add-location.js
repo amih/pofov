@@ -3,7 +3,7 @@ import 'leaflet/dist/leaflet.css';
 import { api, getMe } from '../api.js';
 import { enqueue } from '../queue.js';
 import { navigate } from '../nav.js';
-import { getPosition, shrinkImage, toast } from '../ui.js';
+import { getPosition, shrinkImage, toast, privacyDialog } from '../ui.js';
 import { t } from '../i18n.js';
 
 export default async function addLocationView(root) {
@@ -25,6 +25,7 @@ export default async function addLocationView(root) {
         <input name="name" maxlength="120" placeholder="${t('addloc.name_ph')}"></label>
       <label>${t('addloc.hint')}
         <textarea name="description" maxlength="1000" rows="3" placeholder="${t('addloc.hint_ph')}"></textarea></label>
+      <p class="field-note">${t('privacy.hint')}</p>
       <label class="check"><input type="checkbox" name="restricted"> ${t('addloc.restricted')}</label>
       <button class="btn primary big" type="submit">${t('addloc.submit')}</button>
     </form>
@@ -64,12 +65,12 @@ export default async function addLocationView(root) {
     root.querySelector('#photo-preview').innerHTML = `<img src="${URL.createObjectURL(photo)}" alt="">`;
   };
 
-  async function submit(force = false) {
+  async function submit(force = false, confirmPrivate = false) {
     if (!pos) return toast(t('addloc.need_pos'));
     const fields = {
       lat: pos.lat, lon: pos.lon, accuracy: pos.accuracy ?? '',
       name: form.name.value, description: form.description.value,
-      restricted: form.restricted.checked ? '1' : '0', force: force ? '1' : '0',
+      restricted: form.restricted.checked ? '1' : '0', force: force ? '1' : '0', confirm_private: confirmPrivate ? '1' : '0',
     };
     if (!navigator.onLine) {
       await enqueue('/api/locations', fields, { photo }, 'library');
@@ -84,10 +85,13 @@ export default async function addLocationView(root) {
       toast(t(l.status === 'approved' ? 'addloc.added_live' : 'addloc.added_review'));
       navigate(`/l/${l.code}`, { replace: true });
     } catch (e) {
-      if (e.body?.error === 'nearby_exists') {
+      if (e.body?.error === 'private_info') {
+        if (await privacyDialog(e.body.snippets)) submit(force, true);
+        else form.description.focus();
+      } else if (e.body?.error === 'nearby_exists') {
         const d = e.body.location;
         if (confirm(t('addloc.dup', { name: d.name || d.code }))) navigate(`/l/${d.code}`);
-        else submit(true);
+        else submit(true, confirmPrivate);
       } else if (e.status === undefined || e instanceof TypeError) {
         await enqueue('/api/locations', fields, { photo }, 'library');
         toast(t('addloc.conn'));

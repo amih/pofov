@@ -6,6 +6,7 @@ import { lookupIsbn, upsertBook, findOrCreateBook } from './books.js';
 import { readForm } from './multipart.js';
 import { initialStatus, locationStatus, award, pointsForSighting } from './moderation.js';
 import { parseLatLon, shortCode } from './util.js';
+import { checkPrivate } from './privacy.js';
 
 const DUPLICATE_RADIUS_M = 25;
 export const SIGHTING_KINDS = ['seen', 'added', 'taken', 'gone'];
@@ -135,10 +136,15 @@ export default async function locationRoutes(app) {
       if (dup) return reply.code(409).send({ error: 'nearby_exists', location: dup });
     }
 
-    const photo = files.photo && await savePhoto(files.photo, { userId: req.user.id, kind: 'location' });
-    const status = locationStatus(req.user);
     const name = String(fields.name ?? '').trim().slice(0, 120) || null;
     const description = String(fields.description ?? '').trim().slice(0, 1000) || null;
+    // Names and hints are public: no door codes, phone numbers and the like.
+    const privacy = await checkPrivate(name, description);
+    if (privacy.flagged && fields.confirm_private !== '1') {
+      return reply.code(422).send({ error: 'private_info', snippets: privacy.snippets });
+    }
+    const photo = files.photo && await savePhoto(files.photo, { userId: req.user.id, kind: 'location' });
+    const status = privacy.flagged ? 'pending' : locationStatus(req.user);
     const restricted = fields.restricted === '1' || fields.restricted === true;
 
     const loc = await tx(async (db) => {
@@ -146,10 +152,11 @@ export default async function locationRoutes(app) {
       for (let attempt = 0; !row; attempt++) {
         try {
           row = (await db.query(
-            `INSERT INTO locations(code, name, description, geom, status, restricted, photo_id, created_by, last_checked_at)
-             VALUES ($1, $2, $3, ST_MakePoint($4, $5)::geography, $6, $7, $8, $9, now())
+            `INSERT INTO locations(code, name, description, geom, status, restricted, photo_id, created_by, last_checked_at, privacy_flag)
+             VALUES ($1, $2, $3, ST_MakePoint($4, $5)::geography, $6, $7, $8, $9, now(), $10)
              RETURNING id, code, status`,
-            [shortCode(), name, description, pos.lon, pos.lat, status, restricted, photo?.id ?? null, req.user.id],
+            [shortCode(), name, description, pos.lon, pos.lat, status, restricted, photo?.id ?? null, req.user.id,
+             privacy.flagged ? { reason: privacy.reason, snippets: privacy.snippets } : null],
           )).rows[0];
         } catch (err) {
           if (err.code !== '23505' || attempt > 5) throw err; // code collision → retry

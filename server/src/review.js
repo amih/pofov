@@ -9,7 +9,7 @@ export default async function reviewRoutes(app) {
 
   app.get('/api/review', reviewer, async () => {
     const locations = await many(
-      `SELECT l.id, l.code, l.name, l.description, l.restricted, l.created_at,
+      `SELECT l.id, l.code, l.name, l.description, l.restricted, l.created_at, l.privacy_flag,
               ST_Y(l.geom::geometry) AS lat, ST_X(l.geom::geometry) AS lon,
               p.thumb_path, COALESCE(u.screen_name, 'Reader #' || u.id) AS by_name
          FROM locations l LEFT JOIN photos p ON p.id = l.photo_id LEFT JOIN users u ON u.id = l.created_by
@@ -24,7 +24,7 @@ export default async function reviewRoutes(app) {
         WHERE s.status = 'pending' AND l.status = 'approved' ORDER BY s.created_at LIMIT 200`,
     );
     const edits = await many(
-      `SELECT e.id, e.changes, e.note, e.created_at, l.code, l.name, l.description, l.restricted,
+      `SELECT e.id, e.changes, e.note, e.created_at, e.privacy_flag, l.code, l.name, l.description, l.restricted,
               ST_Y(l.geom::geometry) AS lat, ST_X(l.geom::geometry) AS lon,
               op.thumb_path AS old_thumb, np.thumb_path AS new_thumb,
               COALESCE(u.screen_name, 'Reader #' || u.id) AS by_name

@@ -5,20 +5,20 @@ import { locationByCode } from './locations.js';
 
 const TEXT = {
   he: {
-    dir: 'rtl', tag: 'ספריית רחוב חינמית',
+    dir: 'rtl', name: 'ספרחוב', tag: 'ספריית רחוב חינמית',
     lead: '<strong>זו ספריית רחוב חינמית.</strong> לוקחים ספר, משאירים ספר.',
-    steps: ['סרקו את הקוד כדי לראות אילו ספרים יש כאן עכשיו.', 'לקחתם ספר או השארתם אחד? סרקו את הברקוד שלו כדי שאחרים יידעו.', 'מכירים עוד ספריית רחוב? הוסיפו אותה למפה.'],
+    steps: ['סרקו את הקוד כדי לראות אילו ספרים יש כאן עכשיו.', 'לקחתם ספר או השארתם אחד? אפשר לעדכן באפליקציה — לא חובה.', 'מכירים עוד ספריית רחוב? הוסיפו אותה למפה.'],
     print: 'הדפסה',
   },
   en: {
-    dir: 'ltr', tag: 'Pass On, Find Other Volumes',
+    dir: 'ltr', name: 'Seferehov', tag: 'Free street library',
     lead: '<strong>This is a free book exchange.</strong> Take a book, leave a book.',
-    steps: ['Scan the code to see which books are here now.', 'Took a book or left one? Scan its barcode so others know.', 'Know another free library? Add it to the map.'],
+    steps: ['Scan the code to see which books are here now.', 'Took a book or left one? You can say so in the app — not required.', 'Know another free library? Add it to the map.'],
     print: 'Print',
   },
 };
 
-// Printable A5 sign for a library: what POFOV is + a QR code to this location.
+// Printable A5 sign for a library: what Seferehov is + a QR code to this location.
 export default async function signRoutes(app) {
   app.get('/api/locations/:code/sign', async (req, reply) => {
     const loc = await locationByCode(req.params.code);
@@ -28,7 +28,7 @@ export default async function signRoutes(app) {
     const T = TEXT[lang];
     const qr = await QRCode.toString(url, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' });
     reply.type('text/html; charset=utf-8').send(`<!doctype html>
-<html lang="${lang}" dir="${T.dir}"><head><meta charset="utf-8"><title>POFOV sign ${loc.code}</title>
+<html lang="${lang}" dir="${T.dir}"><head><meta charset="utf-8"><title>${T.name} ${loc.code}</title>
 <style>
   @page { size: A5 portrait; margin: 12mm; }
   * { box-sizing: border-box; }
@@ -47,7 +47,7 @@ export default async function signRoutes(app) {
 </style></head><body>
 <div class="sheet">
   <img class="logo" src="/icons/icon-192.png" alt="">
-  <h1>POFOV</h1>
+  <h1>${T.name}</h1>
   <p class="tag">${T.tag}</p>
   <p>${T.lead}</p>
   <div class="qr">${qr}</div>

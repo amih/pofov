@@ -1,6 +1,6 @@
 import { api, getMe } from '../api.js';
 import { navigate } from '../nav.js';
-import { esc, getPosition, shrinkImage, toast } from '../ui.js';
+import { esc, getPosition, shrinkImage, toast, privacyDialog } from '../ui.js';
 import { t } from '../i18n.js';
 
 export default async function editLocationView(root, [code]) {
@@ -24,6 +24,7 @@ export default async function editLocationView(root, [code]) {
       </label>
       <label>${t('addloc.name')} <input name="name" maxlength="120" value="${esc(l.name ?? '')}"></label>
       <label>${t('addloc.hint')} <textarea name="description" maxlength="1000" rows="3">${esc(l.description ?? '')}</textarea></label>
+      <p class="field-note">${t('privacy.hint')}</p>
       <label class="check"><input type="checkbox" name="restricted" ${l.restricted ? 'checked' : ''}> ${t('addloc.restricted')}</label>
       <label class="check"><input type="checkbox" name="move"> ${t('edit.move')}</label>
       <p class="muted small">${t('edit.move_note')}</p>
@@ -41,9 +42,9 @@ export default async function editLocationView(root, [code]) {
     photo = await shrinkImage(file);
     root.querySelector('#photo-preview').innerHTML = `<img src="${URL.createObjectURL(photo)}" alt="">`;
   };
-  form.onsubmit = async (e) => {
-    e.preventDefault();
+  async function send(confirmPrivate) {
     const fd = new FormData();
+    if (confirmPrivate) fd.append('confirm_private', '1');
     fd.append('name', form.name.value);
     fd.append('description', form.description.value);
     fd.append('restricted', form.restricted.checked ? '1' : '0');
@@ -62,9 +63,14 @@ export default async function editLocationView(root, [code]) {
       toast(t(edit.status === 'approved' ? 'edit.applied' : 'edit.sent'));
       navigate(`/l/${code}`, { replace: true });
     } catch (err) {
+      btn.disabled = false;
+      if (err.body?.error === 'private_info') {
+        if (await privacyDialog(err.body.snippets)) return send(true);
+        return form.description.focus();
+      }
       const k = { no_changes: 'edit.no_changes', too_far: 'edit.too_far' }[err.body?.error];
       toast(k ? t(k) : err.message);
-      btn.disabled = false;
     }
-  };
+  }
+  form.onsubmit = (e) => { e.preventDefault(); send(false); };
 }
