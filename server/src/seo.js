@@ -212,10 +212,11 @@ async function libraryPage(lng, T, code) {
   const pName = place ? placeName(place, lng) : null;
   const inPlace = pName ? T('seo.in', pName) : '';
   const country = l.country ? countryName(l.country, lng) : '';
-  const name = l.name || T('free_library');
+  // Unnamed (most OpenStreetMap shelves): "Street library in <town>", plus the code so titles differ.
+  const name = l.name || (inPlace ? T('seo.unnamed', { inPlace }) : T('free_library'));
   const updated = books[0]?.last_seen ?? l.last_checked_at ?? l.created_at;
   return {
-    title: T('seo.lib_title', { name, inPlace }),
+    title: l.name ? T('seo.lib_title', { name, inPlace }) : `${name} · ${l.code} | ${T('app.name')}`,
     description: T('seo.lib_desc', { inPlace, books: books.length }),
     lastmod: updated,
     html: `<h1>${esc(name)}</h1>
