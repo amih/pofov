@@ -1,0 +1,9 @@
+[Unit]
+Description=Monthly Open Library catalogue refresh (dumps appear around the 1st)
+
+[Timer]
+OnCalendar=*-*-05 03:30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

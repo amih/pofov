@@ -1,4 +1,4 @@
-import { one } from './db.js';
+import { one, many } from './db.js';
 import { normalizeIsbn } from './util.js';
 import { normTitle } from './vision.js';
 import { config } from './config.js';
@@ -81,6 +81,27 @@ async function fromNli(isbn) {
 // Without a key Google Books shares a small anonymous daily quota with the world.
 const gbUrl = (qs) => `https://www.googleapis.com/books/v1/volumes?${qs}${config.googleBooksKey ? `&key=${encodeURIComponent(config.googleBooksKey)}` : ''}`;
 
+// Local copy of the Open Library catalogue (see deploy/ol-refresh.sh).
+const fromLocal = (r) => r && ({
+  title: r.title, authors: r.authors, publisher: r.publisher, year: r.year, language: r.lang,
+  cover_url: r.cover_id ? `https://covers.openlibrary.org/b/id/${r.cover_id}-M.jpg` : null,
+  source: 'openlibrary', source_ids: { openlibrary: r.ol_key },
+});
+async function fromLocalIsbn(isbn) {
+  return fromLocal(await one('SELECT * FROM ol_books WHERE isbn13 = $1 LIMIT 1', [isbn]).catch(() => null));
+}
+async function localTitleCandidates(title) {
+  const q = normTitle(title);
+  if (q.length < 3) return [];
+  // word_similarity: how well the read title matches a run of words in the record
+  // (records also carry subtitles and alternative titles).
+  return many(
+    `SELECT *, word_similarity($1, tnorm) AS ws FROM ol_books
+      WHERE $1 <% tnorm ORDER BY ws DESC, isbn13 IS NULL, year DESC NULLS LAST LIMIT 15`,
+    [q],
+  ).catch(() => []);
+}
+
 const isHebrew = (s) => /[\u0590-\u05FF]/.test(s ?? '');
 
 // Finds a book by ISBN: local table first, then Open Library, Google Books, and the
@@ -93,7 +114,9 @@ export async function lookupIsbn(raw) {
   if (existing) return { book: existing };
 
   let meta = null;
-  const sources = isbn.startsWith('978965') ? [fromNli, fromGoogleBooks, fromOpenLibrary] : [fromOpenLibrary, fromGoogleBooks, fromNli];
+  const sources = isbn.startsWith('978965')
+    ? [fromLocalIsbn, fromNli, fromGoogleBooks, fromOpenLibrary]
+    : [fromLocalIsbn, fromOpenLibrary, fromGoogleBooks, fromNli];
   for (const src of sources) {
     try { meta = await src(isbn); } catch { meta = null; }
     if (meta) break;
@@ -127,6 +150,15 @@ export async function findOrCreateBook(b) {
 
 const words = (s) => new Set(normTitle(s).split(' ').filter((w) => w.length > 1));
 // Dice coefficient on words: 1 = same words, 0 = nothing in common.
+// Share of the read title's words found in b (b may hold several titles).
+function containment(a, b) {
+  const A = words(a), B = new Set(String(b).split(' '));
+  if (!A.size) return 0;
+  let n = 0;
+  for (const w of A) if (B.has(w)) n++;
+  return n / A.size;
+}
+
 function similarity(a, b) {
   const A = words(a), B = words(b);
   if (!A.size || !B.size) return 0;
@@ -145,6 +177,11 @@ export async function lookupTitle(title, author) {
 
 async function searchTitle(title, author) {
   const candidates = [];
+  for (const r of await localTitleCandidates(title)) {
+    candidates.push({ ...fromLocal(r), bare: r.title, isbn: r.isbn13, alt: r.tnorm });
+  }
+  const local = pickBest(candidates, title, author);
+  if (local) return { book: await saveCandidate(local, title) };
   // Hebrew titles: the National Library has nearly every Israeli book.
   if (isHebrew(title)) {
     try {
@@ -162,7 +199,7 @@ async function searchTitle(title, author) {
         cover_url: v.imageLinks?.thumbnail?.replace(/^http:/, 'https:') ?? null, source: 'googlebooks', source_ids: { googlebooks: item.id } });
     }
   } catch { /* try Open Library */ }
-  if (!candidates.length) {
+  if (!pickBest(candidates, title, author)) {
     try {
       const ol = await getJson(`https://openlibrary.org/search.json?limit=5&fields=key,title,author_name,isbn,first_publish_year,cover_i&title=${encodeURIComponent(title)}${author ? `&author=${encodeURIComponent(author)}` : ''}`);
       for (const d of ol?.docs ?? []) {
@@ -172,18 +209,31 @@ async function searchTitle(title, author) {
       }
     } catch { /* no match */ }
   }
+  const best = pickBest(candidates, title, author);
+  return { book: best ? await saveCandidate(best, title) : null };
+}
+
+function pickBest(candidates, title, author) {
   let best = null, bestScore = 0;
   for (const c of candidates) {
-    let score = Math.max(similarity(title, c.title), similarity(title, c.bare));
+    let score = Math.max(similarity(title, c.title), similarity(title, c.bare), c.alt ? containment(title, c.alt) : 0);
     if (author && c.authors.length) score = score * 0.75 + 0.25 * Math.max(...c.authors.map((a) => similarity(author, a)));
     if (score > bestScore) { best = c; bestScore = score; }
   }
-  if (!best || bestScore < 0.7) return { book: null };
-  const isbn13 = normalizeIsbn(best.isbn);
+  return best && bestScore >= 0.7 ? best : null;
+}
+
+async function saveCandidate(c, readTitle) {
+  // Library of Congress style records give Hebrew books romanized titles; when the
+  // Hebrew we read matches the record's alternative titles, show the Hebrew.
+  if (readTitle && isHebrew(readTitle) && !isHebrew(c.title) && c.alt && containment(readTitle, c.alt) >= 0.8) {
+    c = { ...c, title: readTitle };
+  }
+  const isbn13 = normalizeIsbn(c.isbn);
   if (isbn13) {
     const existing = await one('SELECT * FROM books WHERE isbn13 = $1', [isbn13]);
-    if (existing) return { book: existing };
+    if (existing) return existing;
   }
-  const { bare, isbn, ...meta } = best;
-  return { book: await findOrCreateBook({ ...meta, isbn13 }) };
+  const { bare, isbn, alt, ...meta } = c;
+  return findOrCreateBook({ ...meta, isbn13 });
 }
