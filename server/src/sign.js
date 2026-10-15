@@ -46,7 +46,7 @@ export default async function signRoutes(app) {
   @media print { .print { display: none; } }
 </style></head><body>
 <div class="sheet">
-  <img class="logo" src="/icons/icon-192.png" alt="">
+  <img class="logo" src="/icons/icon-v2-192.png" alt="">
   <h1>${T.name}</h1>
   <p class="tag">${T.tag}</p>
   <p>${T.lead}</p>
