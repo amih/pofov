@@ -9,8 +9,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { config } from './config.js';
-import { one } from './db.js';
+import { one, q } from './db.js';
 import { normTitle } from './vision.js';
+import { normalizeDanacode } from './util.js';
 
 const UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Mobile Safari/537.36 Seferehov/0.1 (+https://seferehov.com)';
 const REFRESH_DAYS = 30;
@@ -78,7 +79,10 @@ async function fromNli(book) {
         const label = vals.find((v) => /קדמית|אחורית|_FRONT|_BACK/i.test(v)) ?? '';
         if (/אחורית|_BACK/i.test(label)) back ??= vals[1]; else if (/קדמית|_FRONT/i.test(label)) front ??= vals[1];
       }
-      return { source: 'nli', description: tidy(blurb), front_url: front && await iiifImage(front), back_url: back && await iiifImage(back) };
+      // The record also holds the book's Danacode (024 $2 danacode): kept, so a later
+      // scan of the Danacode barcode finds this book.
+      const dana = marcFields(xml, '024').find((f) => f.some(([c, v]) => c === '2' && /danacode/i.test(v)))?.find(([c]) => c === 'a')?.[1];
+      return { source: 'nli', danacode: normalizeDanacode(dana), description: tidy(blurb), front_url: front && await iiifImage(front), back_url: back && await iiifImage(back) };
     }
   }
   return null;
@@ -150,6 +154,9 @@ async function lookUp(book) {
       used ||= !!found[side];
     }
     if (!found.description && r.description) { found.description = r.description; used = true; }
+    if (r.danacode && !book.danacode) {
+      await q('UPDATE books SET danacode = $2 WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM books WHERE danacode = $2)', [book.id, r.danacode]).catch(() => {});
+    }
     if (used) found.sources.push(r.source);
     if (found.front_url && found.back_url && found.description) break;
   }

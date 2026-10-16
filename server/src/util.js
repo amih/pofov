@@ -31,6 +31,24 @@ export function normalizeIsbn(raw) {
   return null;
 }
 
+// Danacode (Israel): 4 publisher digits, 7 item digits, 1 check digit (weights 7,9,…;
+// the same check as a UPC-A barcode, which is how it is printed). Accepts the 12 digits,
+// the barcode's 13 (a leading 0), or the short form "31-4090". Returns 12 digits or null.
+export function normalizeDanacode(raw) {
+  const s = String(raw ?? '').trim();
+  let core;
+  const short = s.match(/^(\d{1,4})\s*-\s*(\d{1,7})$/);
+  if (short) core = short[1].padStart(4, '0') + short[2].padStart(7, '0');
+  else {
+    const d = s.replace(/[\s-]/g, '');
+    if (!/^0?\d{12}$/.test(d)) return null;
+    const full = d.slice(-12);
+    return danacodeCheck(full.slice(0, 11)) === full[11] && !/^0{11}/.test(full) ? full : null;
+  }
+  return /^0{11}$/.test(core) ? null : core + danacodeCheck(core);
+}
+const danacodeCheck = (core11) => String([...core11].reduce((a, c, i) => a + Number(c) * (i % 2 ? 9 : 7), 0) % 10);
+
 function isbn13Check(core12) {
   let sum = 0;
   for (let i = 0; i < 12; i++) sum += Number(core12[i]) * (i % 2 ? 3 : 1);

@@ -139,7 +139,7 @@ export default async function myBooksView(root) {
   };
   $('#manual').onsubmit = (e) => {
     e.preventDefault();
-    const v = e.target.isbn.value.replace(/[^0-9Xx]/g, '');
+    const v = e.target.isbn.value.replace(/[^0-9Xx-]/g, ''); // dashes: Danacode short form "31-4090"
     if (v) handleIsbn(v);
     e.target.reset();
   };

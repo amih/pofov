@@ -44,6 +44,7 @@ export async function approveItem(item, scan, user, { title, author } = {}) {
     : title && await findOrCreateBook({
       title, authors: splitAuthors(author), source: item.via === 'barcode' ? 'user' : 'llm',
       isbn13: item.via === 'barcode' && !item.book_id ? item.isbn13 : null,
+      danacode: item.via === 'barcode' && !item.book_id ? item.danacode : null,
     });
   if (!book) return null;
   const loc = await one('SELECT id, status FROM locations WHERE id = $1', [scan.location_id]);
@@ -184,13 +185,14 @@ export default async function approvalRoutes(app) {
         [loc.id, req.user.id, kind === 'added' ? 'added' : 'seen', distance, lang === 'en' ? 'en' : 'he'],
       )).rows[0];
       return (await db.query(
-        `INSERT INTO scan_items(scan_id, title, author, isbn13, book_id, via, matched, quality, lookup_id, sources)
-         VALUES ($1, $2, $3, $4, $5, 'barcode', $6, $7, $8, '{barcode}') RETURNING id`,
-        [scan.id, book?.title ?? `ISBN ${r.isbn}`, book?.authors?.[0] ?? null, r.isbn, book?.id ?? null, !!book, book ? 'high' : 'low', r.lookupId ?? null],
+        `INSERT INTO scan_items(scan_id, title, author, isbn13, danacode, book_id, via, matched, quality, lookup_id, sources)
+         VALUES ($1, $2, $3, $4, $5, $6, 'barcode', $7, $8, $9, '{barcode}') RETURNING id`,
+        [scan.id, book?.title ?? (r.isbn ? `ISBN ${r.isbn}` : `דאנאקוד ${r.danacode}`), book?.authors?.[0] ?? null, r.isbn, r.danacode ?? null,
+          book?.id ?? null, !!book, book ? 'high' : 'low', r.lookupId ?? null],
       )).rows[0];
     });
     await mergeDuplicates(req.user.id);
     const merged = (await one('SELECT decision FROM scan_items WHERE id = $1', [item.id])).decision === 'merged';
-    return { item, book, isbn: r.isbn, merged, ...(await counts(req.user.id)) };
+    return { item, book, isbn: r.isbn ?? r.danacode, merged, ...(await counts(req.user.id)) };
   });
 }

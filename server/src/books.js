@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { one, many, q } from './db.js';
-import { normalizeIsbn } from './util.js';
+import { normalizeIsbn, normalizeDanacode } from './util.js';
 import { normTitle } from './vision.js';
 import { config } from './config.js';
 
@@ -216,7 +216,13 @@ const isHebrew = (s) => /[\u0590-\u05FF]/.test(s ?? '');
 // Returns { book } or { book: null, isbn } when nothing was found.
 export async function lookupIsbn(raw, context = 'isbn_lookup') {
   const isbn = normalizeIsbn(raw);
-  if (!isbn) return { error: 'invalid_isbn' };
+  if (!isbn) {
+    // Israeli books often carry a Danacode instead. No open catalogue answers by
+    // Danacode, so only books someone here has named already are found.
+    const danacode = normalizeDanacode(raw);
+    if (!danacode) return { error: 'invalid_isbn' };
+    return { book: await one('SELECT * FROM books WHERE danacode = $1', [danacode]), isbn: null, danacode };
+  }
   const israeli = isbn.startsWith('978965');
   return withLookup({ kind: 'isbn', query: isbn, hebrew: israeli, context }, async () => {
     const existing = await one('SELECT * FROM books WHERE isbn13 = $1', [isbn]);
@@ -234,19 +240,23 @@ export async function lookupIsbn(raw, context = 'isbn_lookup') {
 }
 
 export async function upsertBook(b) {
+  if (b.danacode && !b.isbn13) {
+    const known = await one('SELECT * FROM books WHERE danacode = $1', [b.danacode]);
+    if (known) return known;
+  }
   return one(
-    `INSERT INTO books(isbn13, title, authors, publisher, year, language, cover_url, source, source_ids)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO books(isbn13, title, authors, publisher, year, language, cover_url, source, source_ids, danacode)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (isbn13) DO UPDATE SET isbn13 = EXCLUDED.isbn13
      RETURNING *`,
     [b.isbn13 ?? null, b.title, b.authors ?? [], b.publisher ?? null, b.year ?? null,
-     b.language ?? null, b.cover_url ?? null, b.source, b.source_ids ?? {}],
+     b.language ?? null, b.cover_url ?? null, b.source, b.source_ids ?? {}, b.isbn13 ? null : b.danacode ?? null],
   );
 }
 
 // For books without an ISBN: reuse a row with the same title and first author.
 export async function findOrCreateBook(b) {
-  if (b.isbn13) return upsertBook(b);
+  if (b.isbn13 || b.danacode) return upsertBook(b);
   const existing = await one(
     `SELECT * FROM books WHERE lower(title) = lower($1)
         AND (cardinality(authors) = 0 OR $2::text IS NULL OR lower(authors[1]) = lower($2))

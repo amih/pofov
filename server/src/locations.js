@@ -294,7 +294,7 @@ export default async function locationRoutes(app) {
       if (r.error) return reply.code(400).send(r);
       book = r.book;
       if (!book && fields.title) {
-        book = await upsertBook({ isbn13: r.isbn, title: String(fields.title).slice(0, 300), authors: splitAuthors(fields.author), source: 'user' });
+        book = await upsertBook({ isbn13: r.isbn, danacode: r.danacode, title: String(fields.title).slice(0, 300), authors: splitAuthors(fields.author), source: 'user' });
       }
     } else if (fields.title) {
       book = await findOrCreateBook({ title: String(fields.title).slice(0, 300), authors: splitAuthors(fields.author), source: 'user' });

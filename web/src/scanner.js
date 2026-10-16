@@ -18,7 +18,14 @@ async function getDetector() {
   return detectorPromise;
 }
 
-const isIsbn = (s) => /^97[89]\d{10}$/.test(s);
+// A book's code: an ISBN (EAN-13, 978/979) or an Israeli Danacode, whose 12 digits are
+// printed as a UPC-A barcode (some readers report it as EAN-13 with a leading 0).
+const upcValid = (d) => [...d].reduce((a, c, i) => a + Number(c) * (i % 2 ? 1 : 3), 0) % 10 === 0;
+const bookCode = (s) => {
+  if (/^97[89]\d{10}$/.test(s)) return s;
+  const d = /^0\d{12}$/.test(s) ? s.slice(1) : s;
+  return /^\d{12}$/.test(d) && upcValid(d) && !/^0{11}/.test(d) ? d : null;
+};
 
 // Starts the camera in <video>, calls onIsbn(isbn) for every new book barcode.
 // Returns stop().
@@ -40,8 +47,8 @@ export async function startScanner(video, onIsbn) {
     if (video.readyState >= 2) {
       try {
         for (const code of await detector.detect(video)) {
-          const v = code.rawValue;
-          if (isIsbn(v) && (v !== last || Date.now() - lastAt > 4000)) {
+          const v = bookCode(code.rawValue);
+          if (v && (v !== last || Date.now() - lastAt > 4000)) {
             last = v;
             lastAt = Date.now();
             navigator.vibrate?.(60);
@@ -61,6 +68,6 @@ export async function scanImage(blob) {
   const detector = await getDetector();
   const bmp = await createImageBitmap(blob);
   try {
-    return (await detector.detect(bmp)).map((c) => c.rawValue).find(isIsbn) ?? null;
+    return (await detector.detect(bmp)).map((c) => bookCode(c.rawValue)).find(Boolean) ?? null;
   } finally { bmp.close(); }
 }
