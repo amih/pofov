@@ -5,3 +5,4 @@ uploads/
 *.private.md
 *.private
 .env.*.local
+server/scan-keep/
