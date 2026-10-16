@@ -1,10 +1,11 @@
 import { api, getMe } from '../api.js';
 import { enqueue } from '../queue.js';
 import { navigate } from '../nav.js';
-import { startScanner, scanImage } from '../scanner.js';
+import { startScanner } from '../scanner.js';
 import { esc, shrinkImage, timeAgo, toast } from '../ui.js';
 import { t } from '../i18n.js';
 import { placeBook } from '../mybooks.js';
+import { bookShots, sendCovers } from '../shots.js';
 
 // The reader's own books, scanned at home. Later, "I left it in a library" reports it there.
 export default async function myBooksView(root) {
@@ -18,8 +19,9 @@ export default async function myBooksView(root) {
     <div class="scanner live" hidden><video muted playsinline></video><div class="frame"></div></div>
     <p class="row">
       <button class="btn primary" id="cam">${t('mybooks.scan')}</button>
-      <label class="btn">${t('addbook.photo')}<input type="file" accept="image/*" capture="environment" hidden id="still"></label>
+      <button class="btn" data-shots="start">📷 ${t('shots.start')}</button>
     </p>
+    <div class="shots" id="shots" hidden></div>
     <p class="decoded" id="decoded" dir="ltr" hidden></p>
     <div id="result"></div>
     <form id="manual" class="row form-inline">
@@ -91,7 +93,7 @@ export default async function myBooksView(root) {
       return true;
     } catch (e) {
       if (e instanceof TypeError) {
-        await enqueue('/api/my-books', fields, photo ? { photo } : {}, 'book');
+        await enqueue('/api/my-books', fields, { photo }, 'book');
         result.innerHTML = `<p class="note">${t('bc.saved_offline')}</p>`;
         return true;
       }
@@ -99,7 +101,9 @@ export default async function myBooksView(root) {
         // No catalogue knows this ISBN: ask for the title, keep the ISBN.
         noisbn.isbn.value = e.body.isbn;
         root.querySelector('.nobarcode').open = true;
-        result.innerHTML = `<p class="note">${t('addbook.unknown', { isbn: esc(e.body.isbn) })}</p>`;
+        result.innerHTML = `<p class="note">${t('shots.unknown', { isbn: esc(e.body.isbn) })}</p>
+          <p><button class="btn primary" id="shoot-unknown">📷 ${t('shots.start')}</button></p>`;
+        $('#shoot-unknown').onclick = () => { stopScanner(); shots.start({ isbn: e.body.isbn }); };
         noisbn.title.focus();
       } else result.innerHTML = `<p class="note">${e.body?.error === 'invalid_isbn' ? t('addbook.invalid') : esc(e.message)}</p>`;
       return false;
@@ -116,8 +120,10 @@ export default async function myBooksView(root) {
   }
 
   let stop = null;
+  const stopScanner = () => { stop?.(); stop = null; scanner.hidden = true; $('#cam').textContent = t('mybooks.scan'); };
   $('#cam').onclick = async () => {
-    if (stop) { stop(); stop = null; scanner.hidden = true; $('#cam').textContent = t('mybooks.scan'); return; }
+    if (stop) return stopScanner();
+    shots.stop();
     scanner.hidden = false;
     try {
       stop = await startScanner(video, handleIsbn);
@@ -128,15 +134,24 @@ export default async function myBooksView(root) {
       toast(t(err.name === 'NotAllowedError' ? 'cam.denied' : 'cam.fail'));
     }
   };
-  $('#still').onchange = async (e) => {
-    const file = e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    say(t('addbook.reading'));
-    const isbn = await scanImage(file).catch(() => null);
-    if (isbn) handleIsbn(isbn);
-    else result.innerHTML = `<p class="note">${t('addbook.nofound')}</p>`;
-  };
+
+  // Front and back photos of one book: a known barcode adds it now; anything else is
+  // read from the covers on the server and waits in the queue.
+  const shots = bookShots({ on: root, panel: $('#shots'), onStart: () => stopScanner(), onBook: async ({ front, back, isbn }) => {
+    if (isbn && navigator.onLine) {
+      const fd = new FormData();
+      fd.append('isbn', isbn);
+      fd.append('photo', front, 'photo.jpg');
+      try {
+        const r = await api('/api/my-books', { method: 'POST', form: fd });
+        showLists();
+        return `<span class="ok">✓ ${esc(r.book.title)}</span>`;
+      } catch (e) {
+        if (e.body?.error !== 'book_not_found' && !(e instanceof TypeError)) throw e;
+      }
+    }
+    return sendCovers({ isbn, front, back });
+  } });
   $('#manual').onsubmit = (e) => {
     e.preventDefault();
     const v = e.target.isbn.value.replace(/[^0-9Xx-]/g, ''); // dashes: Danacode short form "31-4090"
@@ -151,5 +166,5 @@ export default async function myBooksView(root) {
   };
 
   showLists();
-  return () => stop?.();
+  return () => { stop?.(); shots.stop(); };
 }

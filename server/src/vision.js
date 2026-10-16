@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { readBarcodes } from 'zxing-wasm/reader';
 import { config } from './config.js';
+import { normalizeIsbn } from './util.js';
 
 // One line per book is far more reliable with small local models than JSON.
 const PROMPT = `Read the book spines and covers in this photo. Write one line per distinct book, in the format:
@@ -43,6 +44,21 @@ export async function readBooks(buffer, { spines = true } = {}) {
     }
   }
   return books;
+}
+
+// The front and back covers of one book, photographed one after the other: the title and
+// author from the front, the ISBN from a barcode (either side) or printed on the back.
+const FRONT_PROMPT = 'This is the front cover of one book. Read its title and author exactly as printed, in the original language and script (do not translate). Answer one line: TITLE | AUTHOR. If unreadable answer NONE.';
+const BACK_PROMPT = 'This is the back cover of a book. If an ISBN number is printed on it, answer the ISBN digits only. Otherwise answer NONE.';
+export async function readCover(front, back = null) {
+  let book = null;
+  for (const angle of [0, 90, 270]) {
+    [book] = parseBooks((await generate(await prepare(front, angle), FRONT_PROMPT, 120)).trim().split('\n')[0]);
+    if (book && book.quality !== 'low') break;
+  }
+  let isbn = (back && (await readIsbnBarcodes(back))[0]) || (await readIsbnBarcodes(front))[0] || null;
+  if (!isbn && back) isbn = normalizeIsbn(await generate(await prepare(back, 0), BACK_PROMPT, 40));
+  return { title: book?.title ?? null, author: book?.author ?? null, quality: book?.quality ?? 'low', isbn };
 }
 
 async function generate(jpeg, prompt, numPredict) {
@@ -294,7 +310,7 @@ export function parseBooks(text) {
     if (!line || /^END\b/i.test(line)) continue;
     const [rawTitle, rawAuthor, rawIsbn] = line.split('|').map((x) => x?.trim());
     const title = clean(rawTitle);
-    if (!title || title.length < 2 || /^title$/i.test(title)) continue;
+    if (!title || title.length < 2 || /^(title|none|unreadable)$/i.test(title)) continue;
     const isbnDigits = String(rawIsbn ?? '').replace(/[^0-9X]/gi, '');
     out.push({ title, author: /^(none|unknown|n\/a)$/i.test(clean(rawAuthor)) ? null : clean(rawAuthor) || null, isbn: isbnDigits.length >= 10 ? isbnDigits : null, quality: readQuality(line) });
   }

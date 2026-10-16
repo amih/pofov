@@ -51,14 +51,14 @@ const visibleTo = (loc, user) =>
   loc && (loc.status === 'approved' || (user && (user.id === loc.created_by || user.trust_level >= 2)));
 
 // One report of one book at one library; approved at once for trusted readers on the spot.
-export async function recordSighting({ user, loc, book, kind, distance, photoId = null }) {
+export async function recordSighting({ user, loc, book, kind, distance, photoId = null, backPhotoId = null }) {
   const far = distance == null || distance > config.maxReportDistanceM;
   const status = loc.status === 'approved' ? initialStatus(user, { far }) : 'pending';
   return tx(async (db) => {
     const row = (await db.query(
-      `INSERT INTO sightings(book_id, location_id, user_id, kind, status, photo_id, distance_m)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, status`,
-      [book.id, loc.id, user.id, kind, status, photoId, distance],
+      `INSERT INTO sightings(book_id, location_id, user_id, kind, status, photo_id, back_photo_id, distance_m)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, status`,
+      [book.id, loc.id, user.id, kind, status, photoId, backPhotoId, distance],
     )).rows[0];
     if (status === 'approved') {
       await award(db, { userId: user.id, points: pointsForSighting(kind), reason: `sighting_${kind}`, refType: 'sighting', refId: row.id });
@@ -242,6 +242,9 @@ export default async function locationRoutes(app) {
          SELECT p.path AS url, 'cover' AS kind, s.created_at FROM sightings s JOIN photos p ON p.id = s.photo_id
           WHERE s.location_id = $1 AND s.book_id = $2 AND s.status = 'approved'
          UNION ALL
+         SELECT p.path, 'back', s.created_at FROM sightings s JOIN photos p ON p.id = s.back_photo_id
+          WHERE s.location_id = $1 AND s.book_id = $2 AND s.status = 'approved'
+         UNION ALL
          SELECT i.crop_path, 'spine', s.created_at FROM scan_items i JOIN sightings s ON s.id = i.sighting_id
           WHERE s.location_id = $1 AND s.book_id = $2 AND s.status = 'approved' AND i.crop_path IS NOT NULL
          UNION ALL
@@ -303,7 +306,8 @@ export default async function locationRoutes(app) {
 
     const distance = await distanceTo(loc.id, parseLatLon(fields.lat, fields.lon));
     const photo = files.photo && await savePhoto(files.photo, { userId: req.user.id, kind: 'cover' });
-    const s = await recordSighting({ user: req.user, loc, book, kind, distance, photoId: photo?.id });
+    const back = files.back && await savePhoto(files.back, { userId: req.user.id, kind: 'back' });
+    const s = await recordSighting({ user: req.user, loc, book, kind, distance, photoId: photo?.id, backPhotoId: back?.id });
     return { sighting: s, book };
   });
 

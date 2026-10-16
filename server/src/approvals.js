@@ -11,15 +11,19 @@ import { readForm } from './multipart.js';
 import { normTitle } from './vision.js';
 
 const ITEM_SQL = `
-  SELECT i.id, i.title, i.author, i.isbn13, i.via, i.matched, i.quality, i.frame_path, i.crop_path, i.decision, i.sources,
+  SELECT i.id, i.title, i.author, i.isbn13, i.via, i.matched, i.quality, i.frame_path, i.crop_path, i.back_path, i.decision, i.sources,
          s.id AS scan_id, s.kind, s.source, l.code, l.name AS location_name,
          b.id AS book_id, b.title AS book_title, b.authors AS book_authors, b.cover_url, b.year
-    FROM scan_items i JOIN scans s ON s.id = i.scan_id JOIN locations l ON l.id = s.location_id
+    FROM scan_items i JOIN scans s ON s.id = i.scan_id LEFT JOIN locations l ON l.id = s.location_id
     LEFT JOIN books b ON b.id = i.book_id`;
 
-const publicItem = ({ frame_path, crop_path, ...i }) => ({
-  ...i, frame: frame_path && `/uploads/${frame_path}`, crop: crop_path && `/uploads/${crop_path}`,
+const publicItem = ({ frame_path, crop_path, back_path, ...i }) => ({
+  ...i, frame: frame_path && `/uploads/${frame_path}`, crop: crop_path && `/uploads/${crop_path}`, back: back_path && `/uploads/${back_path}`,
 });
+
+// A cover photo from the queue becomes a photo of the book (the same file, re-encoded already).
+const photoOf = async (path, userId, kind) => path && (await one(
+  'INSERT INTO photos(user_id, kind, path, thumb_path) VALUES ($1, $2, $3, $3) RETURNING id', [userId, kind, path])).id;
 
 async function counts(userId) {
   return one(
@@ -47,14 +51,22 @@ export async function approveItem(item, scan, user, { title, author } = {}) {
       danacode: item.via === 'barcode' && !item.book_id ? item.danacode : null,
     });
   if (!book) return null;
+  // Covers photographed by the reader: kept as the book's front and back photos.
+  const covers = item.sources?.includes('cover');
+  const photoId = covers ? await photoOf(item.frame_path, user.id, 'cover') : null;
+  const backPhotoId = covers ? await photoOf(item.back_path, user.id, 'back') : null;
+  if (!scan.location_id) { // one of the reader's own books (My books)
+    await q('INSERT INTO my_books(user_id, book_id, photo_id, back_photo_id) VALUES ($1, $2, $3, $4)', [user.id, book.id, photoId, backPhotoId]);
+    return { sighting: null, book, edited };
+  }
   const loc = await one('SELECT id, status FROM locations WHERE id = $1', [scan.location_id]);
   const far = scan.distance_m == null || scan.distance_m > config.maxReportDistanceM;
   const status = loc.status === 'approved' ? initialStatus(user, { far }) : 'pending';
   const sighting = await tx(async (db) => {
     const s = (await db.query(
-      `INSERT INTO sightings(book_id, location_id, user_id, kind, status, distance_m)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, status`,
-      [book.id, scan.location_id, user.id, scan.kind, status, scan.distance_m],
+      `INSERT INTO sightings(book_id, location_id, user_id, kind, status, distance_m, photo_id, back_photo_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, status`,
+      [book.id, scan.location_id, user.id, scan.kind, status, scan.distance_m, photoId, backPhotoId],
     )).rows[0];
     if (status === 'approved') {
       await award(db, { userId: user.id, points: pointsForSighting(scan.kind), reason: `sighting_${scan.kind}`, refType: 'sighting', refId: s.id });
@@ -89,7 +101,7 @@ export async function mergeDuplicates(userId) {
     [userId],
   );
   const same = (a, b) => a.location_id === b.location_id && (
-    (a.book_id && a.book_id === b.book_id)
+    (a.book_id && a.book_id === b.book_id) || (a.isbn13 && a.isbn13 === b.isbn13) || (a.danacode && a.danacode === b.danacode)
     || [a.title, a.book_title].some((x) => [b.title, b.book_title].some((y) => near(normTitle(x), normTitle(y)))));
   const groups = [];
   for (const item of open) {
@@ -105,10 +117,10 @@ export async function mergeDuplicates(userId) {
       await db.query(
         `UPDATE scan_items SET author = $2, isbn13 = $3, crop_path = $4, frame_path = $5,
                 sources = (SELECT array_agg(DISTINCT x) FROM unnest($6::text[]) x),
-                decision = CASE WHEN $7 THEN NULL ELSE decision END
+                decision = CASE WHEN $7 THEN NULL ELSE decision END, danacode = $8, back_path = $9
           WHERE id = $1`,
         [keep.id, pick('author'), pick('isbn13'), pick('crop_path'), pick('frame_path'),
-          g.flatMap((x) => x.sources), g.some((x) => x.decision == null)],
+          g.flatMap((x) => x.sources), g.some((x) => x.decision == null), pick('danacode'), pick('back_path')],
       );
       await db.query(`UPDATE scan_items SET decision = 'merged', merged_into = $2, decided_at = now() WHERE id = ANY($1)`, [rest.map((r) => r.id), keep.id]);
     });
@@ -131,7 +143,7 @@ export default async function approvalRoutes(app) {
     );
     const processing = await many(
       `SELECT s.id, s.status, s.source, s.progress, l.code, l.name AS location_name
-         FROM scans s JOIN locations l ON l.id = s.location_id
+         FROM scans s LEFT JOIN locations l ON l.id = s.location_id
         WHERE s.user_id = $1 AND s.status IN ('queued', 'processing') ORDER BY s.created_at`,
       [req.user.id],
     );
@@ -160,10 +172,10 @@ export default async function approvalRoutes(app) {
     const outcome = decision === 'approved' ? (result.edited ? 'edited' : 'kept') : decision === 'declined' ? 'dropped' : null;
     await q(
       `UPDATE scan_items SET decision = $2, decided_at = now(), outcome = $3, sighting_id = $4 WHERE id = $1`,
-      [item.id, decision, outcome, result?.sighting.id ?? null],
+      [item.id, decision, outcome, result?.sighting?.id ?? null],
     );
     await closeIfDone(item.scan_id);
-    return { status: result?.sighting.status ?? null, ...(await counts(req.user.id)) };
+    return { status: result?.sighting?.status ?? null, ...(await counts(req.user.id)) };
   });
 
   // One scanned barcode: looked up now, then waits in the queue like any other book.

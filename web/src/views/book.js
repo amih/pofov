@@ -19,8 +19,15 @@ export default async function bookView(root, [code, id]) {
 
   // A cover photo taken at the shelf first; then the covers found online (so a
   // blurry spine is never all there is); then the spine cut-outs and whole-shelf photos.
-  const pics = [
+  // Front and back covers photographed by readers say it all: then only those two.
+  const latest = (kind) => photos.find((p) => p.kind === kind);
+  const own = latest('cover') && latest('back')
+    ? [{ url: latest('cover').url, label: t('book.pic_cover_here', { when: timeAgo(latest('cover').at) }) },
+      { url: latest('back').url, label: t('book.pic_back_here', { when: timeAgo(latest('back').at) }) }]
+    : null;
+  const pics = own ?? [
     ...photos.filter((p) => p.kind === 'cover').map((p) => ({ url: p.url, label: t('book.pic_cover_here', { when: timeAgo(p.at) }) })),
+    ...photos.filter((p) => p.kind === 'back').map((p) => ({ url: p.url, label: t('book.pic_back_here', { when: timeAgo(p.at) }) })),
     ...(b.front_url || b.cover_url ? [{ url: b.front_url || b.cover_url, label: t('book.pic_front') }] : []),
     ...(b.back_url ? [{ url: b.back_url, label: t('book.pic_back') }] : []),
     ...photos.filter((p) => p.kind === 'spine').map((p) => ({ url: p.url, label: t('book.pic_spine', { when: timeAgo(p.at) }), wide: true })),

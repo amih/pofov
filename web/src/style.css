@@ -298,3 +298,21 @@ body:has(.decide) .install-banner, body:has(.scanner.live) .install-banner { dis
 .lib-opt:has(input:checked) { border-color: var(--wood); }
 .from-mine { margin: 12px 0; }
 .from-mine .row { gap: 6px; }
+
+/* Front, then back cover photos of one book */
+.shots { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+.shots .row { align-items: center; gap: 10px; }
+.shot-thumb { width: 72px; height: 96px; object-fit: cover; border-radius: 4px; flex: none; }
+button.big-btn { font: inherit; text-align: start; width: 100%; }
+.shot-live { position: relative; background: #000; border-radius: var(--radius); overflow: hidden; aspect-ratio: 3 / 4; max-height: 62vh; margin: 0 auto 8px; }
+.shot-live video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shot-guide { position: absolute; inset: 8% 12%; border: 3px solid rgba(255, 255, 255, .85); border-radius: 10px; box-shadow: 0 0 0 999px rgba(0, 0, 0, .25); pointer-events: none; }
+.shot-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.shot-flash.on { animation: shot-flash .35s ease-out; }
+@keyframes shot-flash { from { opacity: .9; } to { opacity: 0; } }
+.shot-meter { position: absolute; left: 12%; right: 12%; bottom: 4%; height: 6px; background: rgba(255, 255, 255, .3); border-radius: 3px; overflow: hidden; }
+.shot-meter i { display: block; height: 100%; width: 0; background: var(--green); transition: width .12s linear; }
+.shot-done { list-style: none; padding: 0; margin: 8px 0 0; }
+.shot-done li { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.shot-done .shot-thumb { width: 40px; height: 54px; }
+.approve .back-pic img { max-height: 30vh; }

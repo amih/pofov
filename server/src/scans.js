@@ -7,11 +7,11 @@ import { config } from './config.js';
 import { one, many, q, tx } from './db.js';
 import { requireUser } from './auth.js';
 import { lookupIsbn, lookupTitle, findOrCreateBook } from './books.js';
-import { readBooks, readIsbnBarcodes, normTitle } from './vision.js';
+import { readBooks, readCover, readIsbnBarcodes, normTitle } from './vision.js';
 import { pickFrames } from './frames.js';
 import { locationByCode, visibleTo, distanceTo, splitAuthors } from './locations.js';
 import { initialStatus, award, pointsForSighting } from './moderation.js';
-import { parseLatLon } from './util.js';
+import { parseLatLon, normalizeIsbn, normalizeDanacode } from './util.js';
 import { mergeDuplicates } from './approvals.js';
 import { sendMail } from './mail.js';
 
@@ -76,11 +76,58 @@ export default async function scanRoutes(app) {
     return { scan: { id, status: 'queued', images: media.filter((m) => m.type === 'image').length, video: media.some((m) => m.type === 'video'), ahead } };
   });
 
+  // The front and back covers of one book no catalogue knew (or with no barcode): read in
+  // the background, then the book waits in the queue. Without a library code the book
+  // is one of the reader's own (My books).
+  app.post('/api/covers', {
+    preHandler: requireUser(),
+    config: { rateLimit: { max: 120, timeWindow: '1 hour' } },
+  }, async (req, reply) => {
+    if (!req.isMultipart()) return reply.code(400).send({ error: 'multipart_required' });
+    const id = crypto.randomUUID();
+    const dir = join(MEDIA_DIR, id);
+    await mkdir(dir, { recursive: true });
+    const media = [];
+    const fields = {};
+    try {
+      for await (const part of req.parts({ limits: { files: 2, fileSize: MAX_PHOTO_BYTES } })) {
+        if (part.type !== 'file') { fields[part.fieldname] = part.value; continue; }
+        if (!['photo', 'back'].includes(part.fieldname)) { part.file.resume(); continue; }
+        const name = `${part.fieldname === 'photo' ? 0 : 1}.img`;
+        await pipeline(part.file, createWriteStream(join(dir, name)));
+        if (part.file.truncated) throw Object.assign(new Error('too_large'), { statusCode: 413 });
+        media.push({ path: name, type: 'image' });
+      }
+    } catch (err) {
+      await rm(dir, { recursive: true, force: true });
+      const status = err.statusCode === 413 || err.code === 'FST_REQ_FILE_TOO_LARGE' ? 413 : 400;
+      return reply.code(status).send({ error: status === 413 ? 'too_large' : 'bad_upload' });
+    }
+    let loc = null;
+    if (fields.code) {
+      loc = await locationByCode(String(fields.code));
+      if (!visibleTo(loc, req.user) || loc.status === 'removed') loc = undefined;
+    }
+    if (!media.some((m) => m.path === '0.img') || loc === undefined) {
+      await rm(dir, { recursive: true, force: true });
+      return reply.code(loc === undefined ? 404 : 400).send({ error: loc === undefined ? 'not_found' : 'no_media' });
+    }
+    const distance = loc ? await distanceTo(loc.id, parseLatLon(fields.lat, fields.lon)) : null;
+    const bookCode = normalizeIsbn(fields.isbn) ?? normalizeDanacode(fields.isbn);
+    await q(
+      `INSERT INTO scans(id, location_id, user_id, kind, media, distance_m, lang, source, book_code) VALUES ($1, $2, $3, $4, $5, $6, $7, 'cover', $8)`,
+      [id, loc?.id ?? null, req.user.id, fields.kind === 'added' ? 'added' : 'seen', JSON.stringify(media.sort((a, b) => a.path.localeCompare(b.path))),
+        distance, fields.lang === 'en' ? 'en' : 'he', bookCode],
+    );
+    wake();
+    return { scan: { id, status: 'queued' } };
+  });
+
   // Finished scans the user has not confirmed yet (for the in-app banner).
   app.get('/api/scans/ready', { preHandler: requireUser() }, async (req) => ({
     scans: await many(
       `SELECT s.id, l.code FROM scans s JOIN locations l ON l.id = s.location_id
-        WHERE s.user_id = $1 AND s.status = 'done' AND s.finished_at > now() - interval '3 days'
+        WHERE s.user_id = $1 AND s.status = 'done' AND s.source <> 'cover' AND s.finished_at > now() - interval '3 days'
         ORDER BY s.finished_at DESC LIMIT 5`,
       [req.user.id],
     ),
@@ -209,7 +256,7 @@ async function emailFinished() {
   const rows = await many(
     `UPDATE scans s SET notified_at = now()
        FROM users u, locations l
-      WHERE s.user_id = u.id AND l.id = s.location_id AND s.notified_at IS NULL
+      WHERE s.user_id = u.id AND l.id = s.location_id AND s.notified_at IS NULL AND s.source <> 'cover'
         AND s.status IN ('done','failed') AND s.finished_at < now() - interval '2 minutes'
         AND s.finished_at > now() - interval '1 day'
       RETURNING s.id, s.status, s.lang, u.email, l.code,
@@ -279,7 +326,41 @@ async function saveCropThumb(jpeg, scanId, n) {
   return rel;
 }
 
+// One book's covers: read, looked up (the scanned code first, then the barcode or ISBN
+// read from the covers, then the title), and one queue item with both pictures.
+async function processCover(scan) {
+  const dir = join(MEDIA_DIR, scan.id);
+  await setProgress(scan.id, { step: 'reading', done: 0, total: 1 });
+  const [front, back = null] = await Promise.all(scan.media.map((m) => readFile(join(dir, m.path))));
+  const frame = await saveFrameThumb(front, scan.id, 0);
+  const backPath = back && await saveFrameThumb(back, scan.id, 1);
+  for (const [i, b] of [front, back].entries()) if (b) await keepCopy(b, scan.id, i).catch((err) => log.warn({ err, scan: scan.id }, 'keep copy failed'));
+  const read = await readCover(front, back);
+  let book = null, lookupId = null, isbn = null, danacode = null;
+  for (const code of [scan.book_code, read.isbn].filter(Boolean)) {
+    const r = await lookupIsbn(code, 'scan').catch(() => ({}));
+    isbn ??= r.isbn ?? null;
+    danacode ??= r.danacode ?? null;
+    lookupId = r.lookupId ?? lookupId;
+    if ((book = r.book ?? null)) break;
+  }
+  if (!book && read.title) {
+    const r = await lookupTitle(read.title, read.author, 'scan').catch(() => ({}));
+    book = r.book ?? null;
+    lookupId = r.lookupId ?? lookupId;
+  }
+  // Nothing readable: the item still waits, with its pictures, for the reader to type the title.
+  const title = read.title || book?.title || (isbn ? `ISBN ${isbn}` : danacode ? `דאנאקוד ${danacode}` : '');
+  await q(
+    `INSERT INTO scan_items(scan_id, title, author, isbn13, danacode, book_id, via, matched, frame_path, back_path, quality, lookup_id, sources)
+     VALUES ($1, $2, $3, $4, $5, $6, 'vision', $7, $8, $9, $10, $11, '{cover}')`,
+    [scan.id, title, read.author ?? book?.authors?.[0] ?? null, book?.isbn13 ?? isbn, danacode, book?.id ?? null, !!book, frame, backPath,
+      book ? 'high' : read.quality === 'low' ? 'low' : 'medium', lookupId],
+  );
+}
+
 async function processScan(scan) {
+  if (scan.source === 'cover') return processCover(scan);
   const dir = join(MEDIA_DIR, scan.id);
   await setProgress(scan.id, { step: 'frames' });
   const images = [];

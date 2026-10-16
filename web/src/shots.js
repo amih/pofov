@@ -1,0 +1,181 @@
+import { api } from './api.js';
+import { enqueue } from './queue.js';
+import { scanImage } from './scanner.js';
+import { esc, shrinkImage } from './ui.js';
+import { t, lang } from './i18n.js';
+
+// Photographing books one after another with the live camera: the front cover, turn the
+// book over, the back cover, next book. The picture is taken by itself once the camera
+// holds still on a sharp picture (a button takes it at once). Each book is handed to
+// onBook({ front, back, isbn }) in the background, which resolves to a line to show.
+// Without a live camera, the phone's camera app is used instead, one photo at a time.
+export function bookShots({ on, panel, onBook, onStart, onEnd }) {
+  let stream = null, video = null, timer = null, side = 'front', front = null, preset = null, busy = false;
+  const small = document.createElement('canvas');
+  const ctx = small.getContext('2d', { willReadFrequently: true });
+  let prev = null, steady = 0, moved = true, best = 0, since = 0;
+  let refresh = () => {};
+
+  const say = () => {
+    panel.querySelector('.shot-say').innerHTML = side === 'front'
+      ? `<b>${t('shots.front_now')}</b><br><span class="muted small">${t('shots.front_how')}</span>`
+      : `<b>${t('shots.now_back')}</b><br><span class="muted small">${t('shots.back_why')}</span>`;
+    panel.querySelector('[data-shots="skip"]').hidden = side !== 'back';
+  };
+  const thumb = (blob) => `<img class="shot-thumb" src="${esc(URL.createObjectURL(blob))}" alt="">`;
+
+  async function start({ isbn = null } = {}) {
+    preset = isbn;
+    refresh = say;
+    side = 'front';
+    front = null;
+    panel.hidden = false;
+    panel.innerHTML = `
+      <div class="shot-live"><video muted playsinline></video><div class="shot-guide"></div><div class="shot-flash"></div>
+        <div class="shot-meter"><i></i></div></div>
+      <p class="shot-say"></p>
+      <p class="row"><button class="btn primary" data-shots="snap">📸 ${t('shots.snap')}</button>
+        <button class="btn" data-shots="skip" hidden>${t('shots.skip')}</button>
+        <button class="btn" data-shots="end">${t('shots.end')}</button></p>
+      <ul class="shot-done"></ul>`;
+    video = panel.querySelector('video');
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1440 } } });
+      video.srcObject = stream;
+      await video.play();
+    } catch {
+      stopCamera();
+      return fallback();
+    }
+    say();
+    since = Date.now();
+    timer = setInterval(tick, 120);
+  }
+
+  // Still and sharp? Movement = mean change of a small grey copy between ticks;
+  // sharpness = variance of its Laplacian (text and edges in focus score high).
+  function tick() {
+    if (busy || !video.videoWidth) return;
+    const w = 160, h = Math.round((w * video.videoHeight) / video.videoWidth);
+    small.width = w; small.height = h;
+    ctx.drawImage(video, 0, 0, w, h);
+    const px = ctx.getImageData(0, 0, w, h).data;
+    const g = new Float32Array(w * h);
+    for (let i = 0; i < g.length; i++) g[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+    let diff = 99;
+    if (prev?.length === g.length) { diff = 0; for (let i = 0; i < g.length; i++) diff += Math.abs(g[i] - prev[i]); diff /= g.length; }
+    prev = g;
+    let sum = 0, sq = 0, n = 0;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        const l = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - w] - g[i + w];
+        sum += l; sq += l * l; n++;
+      }
+    }
+    const sharp = sq / n - (sum / n) ** 2;
+    best = Math.max(best * 0.98, sharp);
+    if (diff > 10) { moved = true; steady = 0; } else if (diff < 3.5) steady++; else steady = Math.max(0, steady - 1);
+    // After a photo, the book has to move (turned over, or the next one) before the next.
+    const ready = moved && Date.now() - since > 1200 && sharp > 15 && sharp >= 0.7 * best;
+    panel.querySelector('.shot-meter i').style.width = `${ready ? Math.min(100, (steady / 8) * 100) : 0}%`;
+    if (ready && steady >= 8) snap();
+  }
+
+  async function snap() {
+    if (busy || !video?.videoWidth) return;
+    busy = true;
+    const c = document.createElement('canvas');
+    c.width = video.videoWidth; c.height = video.videoHeight;
+    c.getContext('2d').drawImage(video, 0, 0);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+    const flash = panel.querySelector('.shot-flash');
+    flash.classList.remove('on'); void flash.offsetWidth; flash.classList.add('on');
+    navigator.vibrate?.(40);
+    moved = false; steady = 0; since = Date.now();
+    took(blob);
+    busy = false;
+  }
+
+  function took(blob) {
+    if (side === 'front') { front = blob; side = 'back'; } else { save(front, blob); front = null; side = 'front'; }
+    refresh();
+  }
+
+  // In the background, so the next book can be photographed meanwhile.
+  async function save(f, b) {
+    const isbn = preset || (b && await scanImage(b).catch(() => null)) || await scanImage(f).catch(() => null);
+    preset = null;
+    const li = document.createElement('li');
+    li.innerHTML = `${thumb(f)}${b ? thumb(b) : ''}<span><span class="spinner"></span></span>`;
+    panel.querySelector('.shot-done')?.prepend(li);
+    let line;
+    try {
+      line = await onBook({ front: await shrinkImage(f, 2400), back: b ? await shrinkImage(b, 2400) : null, isbn });
+    } catch (err) { line = `⚠️ ${esc(err.message)}`; }
+    li.lastElementChild.innerHTML = line;
+  }
+
+  // No live camera: the camera app, one photo at a time.
+  function fallback() {
+    const cam = (s, label) => `<label class="btn primary">📷 ${label}<input type="file" accept="image/*" capture="environment" hidden data-side="${s}"></label>`;
+    panel.innerHTML = `<p class="shot-say"></p><p class="row"><span class="shot-cam"></span>
+      <button class="btn" data-shots="skip" hidden>${t('shots.skip')}</button><button class="btn" data-shots="end">${t('shots.end')}</button></p>
+      <ul class="shot-done"></ul>`;
+    const show = () => { say(); panel.querySelector('.shot-cam').innerHTML = cam(side, t(side === 'front' ? 'shots.front_btn' : 'shots.back')); };
+    refresh = show;
+    panel.onchange = (e) => {
+      const file = e.target.closest('input[data-side]')?.files[0];
+      if (file) took(file);
+    };
+    show();
+  }
+
+  function stopCamera() {
+    clearInterval(timer);
+    stream?.getTracks().forEach((tr) => tr.stop());
+    stream = null;
+  }
+  function stop() {
+    stopCamera();
+    panel.hidden = true;
+    panel.innerHTML = '';
+    panel.onchange = null;
+    onEnd?.();
+  }
+
+  on.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-shots]');
+    if (!b) return;
+    const act = b.dataset.shots;
+    if (act === 'start') { onStart?.(); start(); }
+    else if (act === 'snap') snap();
+    else if (act === 'end') stop();
+    else if (act === 'skip' && front) {
+      save(front, null);
+      front = null; side = 'front'; moved = false; since = Date.now();
+      refresh();
+    }
+  });
+  panel.hidden = true;
+  return { start, stop };
+}
+
+// A book no catalogue knows (or with no barcode read): its covers go to the server,
+// which reads them; the book then waits in the approval queue.
+export async function sendCovers({ code = null, kind = 'seen', pos = null, isbn = null, front, back }) {
+  const fields = { code, kind, isbn, lang: lang(), lat: pos?.lat ?? '', lon: pos?.lon ?? '' };
+  const files = { photo: front, back };
+  try {
+    if (!navigator.onLine) throw new TypeError('offline');
+    const fd = new FormData();
+    Object.entries(fields).forEach(([k, v]) => v != null && fd.append(k, v));
+    Object.entries(files).forEach(([k, b]) => b && fd.append(k, b, `${k}.jpg`));
+    await api('/api/covers', { method: 'POST', form: fd });
+    return `📤 ${t('shots.reading_later')}`;
+  } catch (err) {
+    if (!(err instanceof TypeError)) throw err;
+    await enqueue('/api/covers', fields, files, 'book');
+    return `💾 ${t('bc.saved_offline')}`;
+  }
+}

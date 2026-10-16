@@ -4,6 +4,7 @@ import { navigate } from '../nav.js';
 import { esc, getPosition, shrinkImage, toast, noStringsNote } from '../ui.js';
 import { t, lang } from '../i18n.js';
 import { placeBook } from '../mybooks.js';
+import { bookShots, sendCovers } from '../shots.js';
 
 // Three ways in: shelf photos, a short video, or barcodes one by one. Photos and
 // videos upload in the background so the next one can be taken right away; every
@@ -24,7 +25,9 @@ export default async function addBookView(root, [code], query) {
       <label class="big-btn"><span>🎥</span><b>${t('add3.video')}</b><small>${t('add3.video_note')}</small>
         <input type="file" accept="video/*" capture="environment" hidden id="video"></label>
       <a class="big-btn" id="barcode" href="/l/${code}/barcode"><span>▥</span><b>${t('add3.barcode')}</b><small>${t('add3.barcode_note')}</small></a>
+      <button class="big-btn" data-shots="start"><span>📕</span><b>${t('shots.start')}</b><small>${t('shots.start_note')}</small></button>
     </div>
+    <div class="shots" id="shots" hidden></div>
     <div class="from-mine" id="from-mine" hidden></div>
     <ul class="uploads" id="uploads"></ul>
     <p id="queue-link"></p>
@@ -117,7 +120,26 @@ export default async function addBookView(root, [code], query) {
     upload({ video: f }, t('add3.video_n', { n: ++videos }));
   };
 
+  // Front and back photos of one book: a known barcode is reported here now; anything
+  // else is read from the covers on the server and waits in the queue.
   const noisbn = root.querySelector('#noisbn');
+  const shots = bookShots({ on: root, panel: root.querySelector('#shots'), onBook: async ({ front, back, isbn }) => {
+    if (isbn && navigator.onLine) {
+      const fd = new FormData();
+      Object.entries({ isbn, kind: mode, lat: pos?.lat ?? '', lon: pos?.lon ?? '' }).forEach(([k, v]) => fd.append(k, v));
+      fd.append('photo', front, 'photo.jpg');
+      if (back) fd.append('back', back, 'back.jpg');
+      try {
+        const r = await api(`/api/locations/${code}/sightings`, { method: 'POST', form: fd });
+        return `<span class="ok">✓ ${esc(r.book.title)}</span>${r.sighting.status === 'approved' ? '' : ` <span class="muted small">${t('mybooks.pending')}</span>`}`;
+      } catch (e) {
+        if (e.body?.error !== 'book_not_found' && !(e instanceof TypeError)) throw e;
+      }
+    }
+    const line = await sendCovers({ code, kind: mode, pos, isbn, front, back });
+    showQueue();
+    return line;
+  } });
   noisbn.onsubmit = async (e) => {
     e.preventDefault();
     const file = noisbn.photo.files[0];
@@ -137,4 +159,5 @@ export default async function addBookView(root, [code], query) {
     }
     noisbn.reset();
   };
+  return () => shots.stop();
 }

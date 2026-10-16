@@ -68,7 +68,7 @@ export default async function queueView(root) {
     <section class="page approve">
       <h1>${t('queue.title')}</h1>
       <div id="qhead">${header()}</div>
-      <p class="muted small">${(i.sources?.length ? i.sources : [i.source]).map((x) => esc(t(`queue.from_${x}`))).join(' + ')} · <a href="/l/${i.code}">${esc(i.location_name || t('free_library'))}</a>${i.decision === 'later' ? ` · ${t('queue.was_later')}` : ''}</p>
+      <p class="muted small">${(i.sources?.length ? i.sources : [i.source]).map((x) => esc(t(`queue.from_${x}`))).join(' + ')} · ${i.code ? `<a href="/l/${i.code}">${esc(i.location_name || t('free_library'))}</a>` : `<a href="/books">${t('queue.my_books')}</a>`}${i.decision === 'later' ? ` · ${t('queue.was_later')}` : ''}</p>
       ${big ? `<a href="${esc(i.frame || big)}" target="_blank" class="big-pic ${i.crop ? 'crop' : ''}"><img src="${esc(big)}" alt="${t('scan.photo_of')}"></a>` : ''}
       <div class="approve-book">
         ${i.cover_url && big !== i.cover_url ? `<img class="cover" src="${esc(i.cover_url)}" alt="">` : ''}
@@ -78,6 +78,7 @@ export default async function queueView(root) {
           <p class="small qline q-${i.quality}">${i.quality === 'high' ? `✓ ${t('scan.matched')}${i.year ? ` · ${i.year}` : ''}` : i.quality === 'low' ? `⚠ ${t('scan.lowq')}` : `? ${t('scan.unmatched')}`}</p>
         </form>
       </div>
+      ${i.back ? `<a href="${esc(i.back)}" target="_blank" class="big-pic back-pic"><img src="${esc(i.back)}" alt="${t('queue.back_cover')}"></a>` : ''}
       ${i.crop && i.frame ? `<p><a class="small" href="${esc(i.frame)}" target="_blank">${t('queue.whole_photo')}</a></p>` : ''}
       <div class="decide">
         <button class="btn primary" data-d="approved">✓ ${t('queue.approve')}</button>

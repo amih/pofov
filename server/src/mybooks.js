@@ -44,7 +44,9 @@ export default async function myBookRoutes(app) {
     const had = await one('SELECT id FROM my_books WHERE user_id = $1 AND book_id = $2 AND placed_at IS NULL', [req.user.id, book.id]);
     if (had && !fields.again) return { item: had, book, already: true };
     const photo = files.photo && await savePhoto(files.photo, { userId: req.user.id, kind: 'cover' });
-    const item = await one('INSERT INTO my_books(user_id, book_id, photo_id) VALUES ($1, $2, $3) RETURNING id', [req.user.id, book.id, photo?.id ?? null]);
+    const back = files.back && await savePhoto(files.back, { userId: req.user.id, kind: 'back' });
+    const item = await one('INSERT INTO my_books(user_id, book_id, photo_id, back_photo_id) VALUES ($1, $2, $3, $4) RETURNING id',
+      [req.user.id, book.id, photo?.id ?? null, back?.id ?? null]);
     return { item, book };
   });
 
@@ -60,7 +62,7 @@ export default async function myBookRoutes(app) {
     if (!visibleTo(loc, req.user) || loc.status === 'removed') return reply.code(404).send({ error: 'not_found' });
     const book = await one('SELECT * FROM books WHERE id = $1', [m.book_id]);
     const distance = await distanceTo(loc.id, parseLatLon(req.body?.lat, req.body?.lon));
-    const sighting = await recordSighting({ user: req.user, loc, book, kind: 'added', distance, photoId: m.photo_id });
+    const sighting = await recordSighting({ user: req.user, loc, book, kind: 'added', distance, photoId: m.photo_id, backPhotoId: m.back_photo_id });
     await q('UPDATE my_books SET placed_at = now(), location_id = $2, sighting_id = $3 WHERE id = $1', [m.id, loc.id, sighting.id]);
     return { sighting, code: loc.code };
   });

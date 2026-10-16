@@ -4,6 +4,7 @@ import { navigate } from '../nav.js';
 import { startScanner, scanImage } from '../scanner.js';
 import { esc, getPosition, toast } from '../ui.js';
 import { t, lang } from '../i18n.js';
+import { bookShots, sendCovers } from '../shots.js';
 
 // Live barcode scanning, one book after another. Each barcode is looked up and put
 // in the approval queue; the camera keeps running for the next book.
@@ -23,6 +24,7 @@ export default async function barcodeView(root, [code], query) {
     </p>
     <p class="decoded" id="decoded" dir="ltr">${t('bc.point')}</p>
     <div id="result"></div>
+    <div class="shots" id="shots" hidden></div>
     <form id="manual" class="row form-inline">
       <input name="isbn" inputmode="numeric" placeholder="${t('addbook.isbn_ph')}" dir="ltr" autocomplete="off">
       <button class="btn">${t('add')}</button>
@@ -70,13 +72,17 @@ export default async function barcodeView(root, [code], query) {
         <div><strong>${esc(b?.title ?? `ISBN ${isbn}`)}</strong><br>
           <span class="muted">${esc(b?.authors?.join(', ') ?? (r.offline ? '' : t('bc.unknown')))}</span><br>
           <span class="ok">✓ ${t(r.offline ? 'bc.saved_offline' : r.merged ? 'bc.merged' : 'bc.queued')}</span></div>
-      </div>`;
+      </div>
+      ${b || r.offline ? '' : `<p class="note">${t('shots.unknown', { isbn: esc(isbn) })}</p>
+        <p><button class="btn primary" id="shoot-unknown">📷 ${t('shots.start')}</button></p>`}`;
+    const shoot = result.querySelector('#shoot-unknown');
+    if (shoot) shoot.onclick = () => { stop?.(); stop = null; root.querySelector('.scanner').hidden = true; shots.start({ isbn }); };
     added.insertAdjacentHTML('afterbegin', `<li>${esc(b?.title ?? `ISBN ${isbn}`)}</li>`);
     root.querySelector('#n').textContent = done.size;
     if (r.open != null) root.querySelector('#to-queue').textContent = `📥 ${t('bc.to_queue')} (${r.open + r.later})`;
   }
 
-  let stop = null;
+  let stop = null, left = false;
   const camBtn = root.querySelector('#cam');
   async function start() {
     try {
@@ -89,6 +95,17 @@ export default async function barcodeView(root, [code], query) {
   }
   camBtn.onclick = start;
   start();
+
+  // A barcode no catalogue knows: one book's covers, then back to scanning.
+  const shots = bookShots({
+    on: root, panel: root.querySelector('#shots'), onEnd: () => { if (left || stop) return; root.querySelector('.scanner').hidden = false; start(); },
+    onBook: async ({ front, back, isbn }) => {
+      const line = await sendCovers({ code, kind, pos, isbn, front, back });
+      result.innerHTML = `<p>${line}</p>`;
+      shots.stop();
+      return line;
+    },
+  });
 
   root.querySelector('#still').onchange = async (e) => {
     const file = e.target.files[0];
@@ -106,5 +123,5 @@ export default async function barcodeView(root, [code], query) {
     e.target.reset();
   };
 
-  return () => stop?.();
+  return () => { left = true; stop?.(); stop = null; shots.stop(); };
 }
