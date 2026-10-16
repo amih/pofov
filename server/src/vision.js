@@ -32,7 +32,17 @@ export async function readBooks(buffer, { spines = true } = {}) {
   // Spine-by-spine reads come first: they are the more accurate ones.
   try { all.push(...await readSpines(buffer)); } catch { /* keep the whole-image read */ }
   all.push(...await readOnce(await prepare(buffer, 0)));
-  return mergeBooks(all);
+  const books = mergeBooks(all);
+  // Books only the whole-image read found: find their spine too, so the reader
+  // approving them sees the straightened cut-out, not the whole shelf.
+  const missing = books.filter((b) => !b.crop).slice(0, MAX_SPINES);
+  if (missing.length) {
+    const { data: upright, info } = await sharp(buffer).rotate().toBuffer({ resolveWithObject: true });
+    for (const b of missing) {
+      try { b.crop = await findSpine(upright, info.width, info.height, b.title); } catch { /* no cut-out */ }
+    }
+  }
+  return books;
 }
 
 async function generate(jpeg, prompt, numPredict) {
@@ -88,6 +98,49 @@ export function rotatePoint([x, y], W, H, deg) {
   const W2 = W * Math.abs(c) + H * Math.abs(s), H2 = W * Math.abs(s) + H * Math.abs(c);
   const dx = x - W / 2, dy = y - H / 2;
   return [W2 / 2 + dx * c - dy * s, H2 / 2 + dx * s + dy * c];
+}
+
+const LOCATE_PROMPT = (title) => `Locate the book spine or cover with the title "${title.replace(/"/g, '')}" in this image. Output JSON: [{"bbox_2d":[x1,y1,x2,y2]}]`;
+// Same book? Most words of the shorter title appear in the other one.
+function sameTitle(a, b) {
+  const [x, y] = [normTitle(a).split(' '), normTitle(b).split(' ')].map((w) => w.filter(Boolean));
+  const [short, long] = x.length <= y.length ? [x, new Set(y)] : [y, new Set(x)];
+  return short.length > 0 && short.filter((w) => long.has(w)).length / short.length >= 0.5;
+}
+
+// The straightened cut-out of one named book, the way readSpines makes it: locate it,
+// turn the photo upright for its lean, cut, and turn the text level. Kept only when
+// reading the cut-out gives the same title back (else the box was the wrong book).
+async function findSpine(upright, W, H, title) {
+  const small = await sharp(upright).resize(1280, 1280, { fit: 'inside' }).jpeg({ quality: 88 }).toBuffer();
+  const m = (await generate(small, LOCATE_PROMPT(title), 200)).match(/\[\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/);
+  if (!m) return null;
+  const [x1, y1, x2, y2] = m.slice(1, 5).map(Number);
+  let box = [x1 * W / 1000, y1 * H / 1000, x2 * W / 1000, y2 * H / 1000];
+  if (box[2] - box[0] < 10 || box[3] - box[1] < 10) return null;
+  let img = upright, w = W, h = H;
+  const tilt = await dominantTilt(await cut(upright, W, H, box, 4));
+  if (Math.abs(tilt) >= 5) {
+    const turned = await sharp(upright).rotate(-tilt, { background: '#ffffff' }).toBuffer({ resolveWithObject: true });
+    const pts = [[box[0], box[1]], [box[2], box[1]], [box[0], box[3]], [box[2], box[3]]].map((p) => rotatePoint(p, W, H, -tilt));
+    ({ data: img, info: { width: w, height: h } } = turned);
+    // An upright box around a leaning spine (width s, length L) is s·cos+L·sin wide and
+    // s·sin+L·cos tall; solve for s and keep that much around the middle.
+    const c = Math.cos(Math.abs(tilt) * Math.PI / 180), sn = Math.sin(Math.abs(tilt) * Math.PI / 180);
+    const [bw, bh] = [box[2] - box[0], box[3] - box[1]].sort((a, z) => a - z);
+    const cx = (Math.min(...pts.map((p) => p[0])) + Math.max(...pts.map((p) => p[0]))) / 2;
+    const half = Math.max(10, (bw * c - bh * sn) / (c * c - sn * sn)) / 2;
+    box = [cx - half, Math.min(...pts.map((p) => p[1])), cx + half, Math.max(...pts.map((p) => p[1]))];
+    box = [Math.max(0, box[0]), Math.max(0, box[1]), Math.min(w, box[2]), Math.min(h, box[3])];
+  }
+  const piece = await cut(img, w, h, box, Math.min(box[2] - box[0], box[3] - box[1]) * 0.06 + 6);
+  const bw = box[2] - box[0], bh = box[3] - box[1];
+  for (const angle of bh > bw * 1.3 ? [270, 90] : [0]) {
+    const jpeg = await sharp(piece).rotate(angle).resize(1280, 1280, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer();
+    const [read] = parseBooks((await generate(jpeg, SPINE_PROMPT, 80)).trim().split('\n')[0]);
+    if (read && sameTitle(read.title, title)) return jpeg;
+  }
+  return null;
 }
 
 // Books on a public shelf lean, and an upright box around a leaning spine takes in its
