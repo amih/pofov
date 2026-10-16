@@ -69,7 +69,7 @@ export default async function barcodeView(root, [code], query) {
         ${b?.cover_url ? `<img src="${esc(b.cover_url)}" alt="">` : '<div class="nocover">📖</div>'}
         <div><strong>${esc(b?.title ?? `ISBN ${isbn}`)}</strong><br>
           <span class="muted">${esc(b?.authors?.join(', ') ?? (r.offline ? '' : t('bc.unknown')))}</span><br>
-          <span class="ok">✓ ${t(r.offline ? 'bc.saved_offline' : 'bc.queued')}</span></div>
+          <span class="ok">✓ ${t(r.offline ? 'bc.saved_offline' : r.merged ? 'bc.merged' : 'bc.queued')}</span></div>
       </div>`;
     added.insertAdjacentHTML('afterbegin', `<li>${esc(b?.title ?? `ISBN ${isbn}`)}</li>`);
     root.querySelector('#n').textContent = done.size;

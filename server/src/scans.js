@@ -12,11 +12,16 @@ import { pickFrames } from './frames.js';
 import { locationByCode, visibleTo, distanceTo, splitAuthors } from './locations.js';
 import { initialStatus, award, pointsForSighting } from './moderation.js';
 import { parseLatLon } from './util.js';
+import { mergeDuplicates } from './approvals.js';
 import { sendMail } from './mail.js';
 
 // Raw uploads (may carry GPS in EXIF) live outside the public uploads folder and
 // are deleted once read. Only re-encoded thumbnails go to uploads/.
 const MEDIA_DIR = resolve(process.env.SCAN_DIR || join(config.uploadDir, '..', 'scan-media'));
+// Re-encoded copies (no EXIF/GPS) of what was read, kept a while so a better reader
+// can go over them again (scripts/rescan.js).
+const KEEP_DIR = join(MEDIA_DIR, '..', 'scan-keep');
+const KEEP_DAYS = 30;
 const MAX_PHOTOS = 8;
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
@@ -63,8 +68,8 @@ export default async function scanRoutes(app) {
     const kind = fields.kind === 'added' ? 'added' : 'seen';
     const lang = fields.lang === 'en' ? 'en' : 'he';
     await q(
-      `INSERT INTO scans(id, location_id, user_id, kind, media, distance_m, lang) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [id, loc.id, req.user.id, kind, JSON.stringify(media), distance, lang],
+      `INSERT INTO scans(id, location_id, user_id, kind, media, distance_m, lang, source) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [id, loc.id, req.user.id, kind, JSON.stringify(media), distance, lang, media.some((m) => m.type === 'video') ? 'video' : 'photo'],
     );
     wake();
     const ahead = (await one(`SELECT count(*)::int AS n FROM scans WHERE status IN ('queued','processing') AND id <> $1`, [id])).n;
@@ -184,6 +189,7 @@ export function startScanWorker(logger) {
   log = logger;
   q(`UPDATE scans SET status = 'queued' WHERE status = 'processing'`).then(wake).catch((err) => log.error({ err }, 'scan reset'));
   setInterval(() => { wake(); emailFinished().catch((err) => log.error({ err }, 'scan email')); }, 60_000).unref();
+  setInterval(() => purgeKept().catch((err) => log.error({ err }, 'scan keep purge')), 6 * 3600_000).unref();
 }
 
 const READY_TEXT = {
@@ -211,7 +217,7 @@ async function emailFinished() {
   );
   for (const r of rows) {
     const T = READY_TEXT[r.lang === 'en' ? 'en' : 'he'][r.status === 'done' && r.n ? 'done' : 'failed'];
-    const url = r.status === 'done' && r.n ? `${config.baseUrl}/scan/${r.id}` : `${config.baseUrl}/l/${r.code}/add`;
+    const url = r.status === 'done' && r.n ? `${config.baseUrl}/queue` : `${config.baseUrl}/l/${r.code}/add`;
     await sendMail({ to: r.email, subject: T.subject, text: T.body(r.n, url) }, log);
   }
 }
@@ -233,6 +239,7 @@ async function drain() {
     try {
       await processScan(scan);
       await q(`UPDATE scans SET status = 'done', finished_at = now() WHERE id = $1`, [scan.id]);
+      await mergeDuplicates(scan.user_id).catch((err) => log.warn({ err, scan: scan.id }, 'merge duplicates'));
     } catch (err) {
       log.error({ err, scan: scan.id }, 'scan failed');
       await q(`UPDATE scans SET status = 'failed', error = $2, finished_at = now() WHERE id = $1`, [scan.id, String(err.message).slice(0, 300)]);
@@ -242,13 +249,23 @@ async function drain() {
   }
 }
 
+async function keepCopy(buffer, scanId, i) {
+  await mkdir(join(KEEP_DIR, scanId), { recursive: true });
+  await sharp(buffer).rotate().jpeg({ quality: 92 }).toFile(join(KEEP_DIR, scanId, `${i}.jpg`));
+}
+
+async function purgeKept() {
+  const old = await many(`SELECT id FROM scans WHERE created_at < now() - make_interval(days => $1) AND created_at > now() - make_interval(days => $1 + 7)`, [KEEP_DAYS]);
+  for (const { id } of old) await rm(join(KEEP_DIR, id), { recursive: true, force: true });
+}
+
 const setProgress = (id, progress) => q('UPDATE scans SET progress = $2 WHERE id = $1', [id, progress]);
 
 async function saveFrameThumb(buffer, scanId, i) {
   const month = new Date().toISOString().slice(0, 7);
   const rel = `${month}/scan-${scanId.slice(0, 8)}-${i}.webp`;
   await mkdir(join(config.uploadDir, month), { recursive: true });
-  await sharp(buffer).rotate().resize(640, 640, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 70 })
+  await sharp(buffer).rotate().resize(1280, 1280, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 72 })
     .toFile(join(config.uploadDir, rel)); // re-encoding drops EXIF/GPS
   return rel;
 }
@@ -258,7 +275,7 @@ async function saveCropThumb(jpeg, scanId, n) {
   const month = new Date().toISOString().slice(0, 7);
   const rel = `${month}/scan-${scanId.slice(0, 8)}-c${n}.webp`;
   await mkdir(join(config.uploadDir, month), { recursive: true });
-  await sharp(jpeg).resize(640, 160, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 75 }).toFile(join(config.uploadDir, rel));
+  await sharp(jpeg).resize(1200, 300, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 80 }).toFile(join(config.uploadDir, rel));
   return rel;
 }
 
@@ -296,9 +313,10 @@ async function processScan(scan) {
   for (const [i, { buffer: buf, fromVideo }] of images.entries()) {
     await setProgress(scan.id, { step: 'reading', done: i, total: images.length });
     const frame = await saveFrameThumb(buf, scan.id, i);
+    await keepCopy(buf, scan.id, i).catch((err) => log.warn({ err, scan: scan.id }, 'keep copy failed'));
     for (const isbn of await readIsbnBarcodes(buf)) add(`isbn:${isbn}`, { isbn, via: 'barcode', frame, fromVideo }, i);
     let books = [];
-    try { books = await readBooks(buf, { spines: !fromVideo }); } catch (err) { log.warn({ err, scan: scan.id }, 'vision failed on frame'); }
+    try { books = await readBooks(buf); } catch (err) { log.warn({ err, scan: scan.id }, 'vision failed on frame'); }
     for (const b of books) add(normTitle(b.title), { ...b, via: 'vision', frame, fromVideo }, i);
   }
 
@@ -330,9 +348,10 @@ async function processScan(scan) {
   for (const [n, { item, book, title, isbn, quality, lookupId }] of rows.entries()) {
     const crop = item.crop ? await saveCropThumb(item.crop, scan.id, n) : null;
     await q(
-      `INSERT INTO scan_items(scan_id, title, author, isbn13, book_id, via, matched, frame_path, quality, crop_path, lookup_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [scan.id, title, item.author ?? book?.authors?.[0] ?? null, book?.isbn13 ?? isbn ?? null, book?.id ?? null, item.via, !!book, item.frame, quality, crop, lookupId],
+      `INSERT INTO scan_items(scan_id, title, author, isbn13, book_id, via, matched, frame_path, quality, crop_path, lookup_id, sources)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [scan.id, title, item.author ?? book?.authors?.[0] ?? null, book?.isbn13 ?? isbn ?? null, book?.id ?? null, item.via, !!book, item.frame, quality, crop, lookupId,
+        [item.via === 'barcode' ? 'barcode' : scan.source]],
     );
   }
 }

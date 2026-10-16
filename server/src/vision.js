@@ -19,10 +19,10 @@ async function prepare(buffer, angle) {
 // Spine text runs vertically, so each photo is read upright and turned both ways.
 const ANGLES = [0, 90, 270];
 
-// Reads books from one photo with the vision model. Returns [{title, author, isbn}].
-// Photos: one whole-image read plus each spine cut out and read on its own (far
-// better for Hebrew, which needs the pixels). Video frames: whole image at three
-// angles (cheaper; the many overlapping frames make up for it).
+// Reads books from one photo or video frame with the vision model. Returns
+// [{title, author, isbn}]: each spine cut out, straightened and read on its own (far
+// better for Hebrew, which needs the pixels), plus one whole-image read.
+// { spines: false } reads only the whole image, at three angles (fast).
 export async function readBooks(buffer, { spines = true } = {}) {
   const all = [];
   if (!spines) {
@@ -61,30 +61,83 @@ const iou = (a, b) => {
 // Vowel points mostly show up when the model guesses at Hebrew it cannot read.
 const niqqud = (s) => (s.match(/[\u05B0-\u05BC\u05C1\u05C2]/g) ?? []).length;
 
-async function readSpines(buffer) {
-  const base = sharp(buffer).rotate();
-  const { width: W, height: H } = await base.clone().toBuffer({ resolveWithObject: true }).then((r) => r.info);
-  const small = await base.clone().resize(1280, 1280, { fit: 'inside' }).jpeg({ quality: 88 }).toBuffer();
-  const out = await generate(small, 'Locate every individual book spine or book cover in this image. Output JSON list: [{"bbox_2d":[x1,y1,x2,y2]}]', 1500);
+const DETECT_PROMPT = 'Locate every individual book spine or book cover in this image. Output JSON list: [{"bbox_2d":[x1,y1,x2,y2]}]';
+const MAX_TILT_GROUPS = 3;
+
+// Boxes around every spine/cover, in pixels of `jpeg` (full size W×H).
+async function detect(jpeg, W, H) {
+  const small = await sharp(jpeg).resize(1280, 1280, { fit: 'inside' }).jpeg({ quality: 88 }).toBuffer();
+  const out = await generate(small, DETECT_PROMPT, 1500);
   // Qwen3-VL answers in 0–1000 coordinates relative to the image.
-  let boxes = [...out.matchAll(/"bbox_2d"\s*:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/g)]
+  const boxes = [...out.matchAll(/"bbox_2d"\s*:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/g)]
     .map((m) => m.slice(1, 5).map(Number))
     .map(([x1, y1, x2, y2]) => [x1 * W / 1000, y1 * H / 1000, x2 * W / 1000, y2 * H / 1000])
     .filter(([x1, y1, x2, y2]) => x2 - x1 > 10 && y2 - y1 > 10);
-  boxes = boxes.filter((b, i) => !boxes.slice(0, i).some((o) => iou(o, b) > 0.6)).slice(0, MAX_SPINES);
+  return boxes.filter((b, i) => !boxes.slice(0, i).some((o) => iou(o, b) > 0.6));
+}
+
+const cut = (img, W, H, [x1, y1, x2, y2], pad) => {
+  const left = Math.max(0, Math.floor(x1 - pad));
+  const top = Math.max(0, Math.floor(y1 - pad));
+  return sharp(img).extract({ left, top, width: Math.min(W - left, Math.ceil(x2 - x1 + 2 * pad)), height: Math.min(H - top, Math.ceil(y2 - y1 + 2 * pad)) }).toBuffer();
+};
+
+// Where a point of a W×H picture lands after sharp.rotate(deg) (clockwise, canvas grows to fit).
+export function rotatePoint([x, y], W, H, deg) {
+  const r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  const W2 = W * Math.abs(c) + H * Math.abs(s), H2 = W * Math.abs(s) + H * Math.abs(c);
+  const dx = x - W / 2, dy = y - H / 2;
+  return [W2 / 2 + dx * c - dy * s, H2 / 2 + dx * s + dy * c];
+}
+
+// Books on a public shelf lean, and an upright box around a leaning spine takes in its
+// neighbours too. So: measure the lean inside every box, group boxes that lean the
+// same way, turn the whole photo upright for each group and find the spines again —
+// standing straight, each one gets a box of its own. Then read spine by spine.
+async function readSpines(buffer) {
+  const { data: upright, info } = await sharp(buffer).rotate().toBuffer({ resolveWithObject: true });
+  const { width: W, height: H } = info;
+  const boxes = (await detect(upright, W, H)).slice(0, MAX_SPINES);
+  for (const b of boxes) b.tilt = await dominantTilt(await cut(upright, W, H, b, 4));
+
+  const crops = [];
+  const straight = boxes.filter((b) => Math.abs(b.tilt) < 5);
+  for (const b of straight) crops.push({ img: await cut(upright, W, H, b, Math.min(b[2] - b[0], b[3] - b[1]) * 0.06 + 6), w: b[2] - b[0], h: b[3] - b[1] });
+
+  // Lean groups: tilts within 6° of each other, the biggest groups first.
+  const groups = [];
+  for (const b of boxes.filter((x) => Math.abs(x.tilt) >= 5).sort((a, z) => a.tilt - z.tilt)) {
+    const g = groups.at(-1);
+    if (g && b.tilt - g[0].tilt < 6) g.push(b); else groups.push([b]);
+  }
+  groups.sort((a, z) => z.length - a.length);
+  for (const g of groups.slice(0, MAX_TILT_GROUPS)) {
+    const tilt = g.reduce((acc, b) => acc + b.tilt, 0) / g.length;
+    const turned = await sharp(upright).rotate(-tilt, { background: '#ffffff' }).toBuffer({ resolveWithObject: true });
+    const { width: W2, height: H2 } = turned.info;
+    // The area the group's boxes cover, in the turned photo.
+    const area = g.map((b) => {
+      const pts = [[b[0], b[1]], [b[2], b[1]], [b[0], b[3]], [b[2], b[3]]].map((p) => rotatePoint(p, W, H, -tilt));
+      return [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
+    });
+    const inArea = ([x1, y1, x2, y2]) => {
+      const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+      return area.some((a) => cx >= a[0] && cx <= a[2] && cy >= a[1] && cy <= a[3]);
+    };
+    let found = [];
+    try { found = (await detect(turned.data, W2, H2)).filter(inArea); } catch { /* fall back to the leaning boxes */ }
+    if (!found.length) found = area;
+    for (const b of found.slice(0, MAX_SPINES)) {
+      crops.push({ img: await cut(turned.data, W2, H2, b, Math.min(b[2] - b[0], b[3] - b[1]) * 0.06 + 6), w: b[2] - b[0], h: b[3] - b[1] });
+    }
+  }
 
   const books = [];
-  for (const [x1, y1, x2, y2] of boxes) {
-    const pad = 8;
-    const left = Math.max(0, Math.floor(x1 - pad));
-    const top = Math.max(0, Math.floor(y1 - pad));
-    const crop = base.clone().extract({ left, top, width: Math.min(W - left, Math.ceil(x2 - x1 + 2 * pad)), height: Math.min(H - top, Math.ceil(y2 - y1 + 2 * pad)) })
-      .resize(1280, 1280, { fit: 'inside', withoutEnlargement: true });
-    const vertical = y2 - y1 > (x2 - x1) * 1.3;
+  for (const { img, w, h } of crops.slice(0, MAX_SPINES * 2)) {
     // Spine text runs top-to-bottom on most books; try that first, then the other way.
     let best = null;
-    for (const angle of vertical ? [270, 90] : [0]) {
-      const jpeg = await crop.clone().rotate(angle).jpeg({ quality: 90 }).toBuffer();
+    for (const angle of h > w * 1.3 ? [270, 90] : [0]) {
+      const jpeg = await sharp(img).rotate(angle).resize(1280, 1280, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer();
       const line = (await generate(jpeg, SPINE_PROMPT, 80)).trim().split('\n')[0];
       const [b] = /^NONE\b/i.test(line) ? [] : parseBooks(line);
       if (b && (!best || (best.quality === 'low' && b.quality !== 'low'))) best = { ...b, crop: jpeg };
@@ -93,6 +146,35 @@ async function readSpines(buffer) {
     if (best) books.push(best);
   }
   return books;
+}
+
+// The main direction of the edges in a picture, in degrees from upright, folded into
+// [-45, 45): spine sides, cover sides and printed lines all agree on it. Rotating
+// the picture by -tilt (sharp: positive = clockwise) makes them straight.
+export async function dominantTilt(image) {
+  const { data: p, info } = await sharp(image).greyscale().resize(360, 360, { fit: 'inside' }).raw()
+    .toBuffer({ resolveWithObject: true });
+  const { width: w, height: h } = info;
+  const hist = new Float64Array(90);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      const gx = p[i - w + 1] + 2 * p[i + 1] + p[i + w + 1] - p[i - w - 1] - 2 * p[i - 1] - p[i + w - 1];
+      const gy = p[i + w - 1] + 2 * p[i + w] + p[i + w + 1] - p[i - w - 1] - 2 * p[i - w] - p[i - w + 1];
+      const m2 = gx * gx + gy * gy;
+      if (m2 < 3600) continue; // flat or noise
+      const a = Math.atan2(gy, gx) * 180 / Math.PI; // gradient ⟂ edge: 0 for an upright edge
+      const folded = ((((a + 45) % 90) + 90) % 90); // 0..90, 45 = upright
+      hist[Math.min(89, Math.floor(folded))] += Math.sqrt(m2);
+    }
+  }
+  // Smooth (the folded circle wraps) and take the peak, refined between bins.
+  const sm = hist.map((_, i) => [-2, -1, 0, 1, 2].reduce((acc, d) => acc + hist[(i + d + 90) % 90] * (3 - Math.abs(d)), 0));
+  let k = 0;
+  for (let i = 1; i < 90; i++) if (sm[i] > sm[k]) k = i;
+  const a = sm[(k + 89) % 90], b = sm[k], c = sm[(k + 1) % 90];
+  const off = a - 2 * b + c ? (a - c) / (2 * (a - 2 * b + c)) : 0;
+  return k + 0.5 + off - 45;
 }
 
 // Streams the answer and stops early when the model starts looping (small vision
@@ -161,7 +243,7 @@ export function parseBooks(text) {
     const title = clean(rawTitle);
     if (!title || title.length < 2 || /^title$/i.test(title)) continue;
     const isbnDigits = String(rawIsbn ?? '').replace(/[^0-9X]/gi, '');
-    out.push({ title, author: clean(rawAuthor) || null, isbn: isbnDigits.length >= 10 ? isbnDigits : null, quality: readQuality(line) });
+    out.push({ title, author: /^(none|unknown|n\/a)$/i.test(clean(rawAuthor)) ? null : clean(rawAuthor) || null, isbn: isbnDigits.length >= 10 ? isbnDigits : null, quality: readQuality(line) });
   }
   return mergeBooks(out);
 }

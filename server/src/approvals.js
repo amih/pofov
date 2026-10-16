@@ -8,9 +8,10 @@ import { locationByCode, visibleTo, distanceTo, splitAuthors } from './locations
 import { initialStatus, award, pointsForSighting } from './moderation.js';
 import { parseLatLon } from './util.js';
 import { readForm } from './multipart.js';
+import { normTitle } from './vision.js';
 
 const ITEM_SQL = `
-  SELECT i.id, i.title, i.author, i.isbn13, i.via, i.matched, i.quality, i.frame_path, i.crop_path, i.decision,
+  SELECT i.id, i.title, i.author, i.isbn13, i.via, i.matched, i.quality, i.frame_path, i.crop_path, i.decision, i.sources,
          s.id AS scan_id, s.kind, s.source, l.code, l.name AS location_name,
          b.id AS book_id, b.title AS book_title, b.authors AS book_authors, b.cover_url, b.year
     FROM scan_items i JOIN scans s ON s.id = i.scan_id JOIN locations l ON l.id = s.location_id
@@ -72,11 +73,54 @@ async function closeIfDone(scanId) {
   );
 }
 
+// The same book is often found more than once: in two photos, in the video frames and
+// by its barcode. Open items of one reader at one library that are the same book
+// (same catalogue record, or the same title read) become one item, which keeps the
+// catalogue match, the best reading, a picture, and every source that saw it.
+const RANK = { high: 0, medium: 1, low: 2 };
+const near = (a, b) => a && b && (a === b || (Math.min(a.length, b.length) >= 6 && (a.includes(b) || b.includes(a))));
+export async function mergeDuplicates(userId) {
+  const open = await many(
+    `SELECT i.*, s.location_id, b.title AS book_title FROM scan_items i JOIN scans s ON s.id = i.scan_id
+       LEFT JOIN books b ON b.id = i.book_id
+      WHERE s.user_id = $1 AND s.status = 'done' AND (i.decision IS NULL OR i.decision = 'later')
+      ORDER BY i.id`,
+    [userId],
+  );
+  const same = (a, b) => a.location_id === b.location_id && (
+    (a.book_id && a.book_id === b.book_id)
+    || [a.title, a.book_title].some((x) => [b.title, b.book_title].some((y) => near(normTitle(x), normTitle(y)))));
+  const groups = [];
+  for (const item of open) {
+    const g = groups.find((gr) => gr.some((o) => same(o, item)));
+    if (g) g.push(item); else groups.push([item]);
+  }
+  for (const g of groups.filter((gr) => gr.length > 1)) {
+    // Keep the surest reading; fill in what it lacks from the others.
+    g.sort((a, b) => (Number(!!b.book_id) - Number(!!a.book_id)) || (RANK[a.quality] - RANK[b.quality]) || (Number(!!b.crop_path) - Number(!!a.crop_path)) || (a.id - b.id));
+    const [keep, ...rest] = g;
+    const pick = (k) => keep[k] ?? rest.find((r) => r[k] != null)?.[k] ?? null;
+    await tx(async (db) => {
+      await db.query(
+        `UPDATE scan_items SET author = $2, isbn13 = $3, crop_path = $4, frame_path = $5,
+                sources = (SELECT array_agg(DISTINCT x) FROM unnest($6::text[]) x),
+                decision = CASE WHEN $7 THEN NULL ELSE decision END
+          WHERE id = $1`,
+        [keep.id, pick('author'), pick('isbn13'), pick('crop_path'), pick('frame_path'),
+          g.flatMap((x) => x.sources), g.some((x) => x.decision == null)],
+      );
+      await db.query(`UPDATE scan_items SET decision = 'merged', merged_into = $2, decided_at = now() WHERE id = ANY($1)`, [rest.map((r) => r.id), keep.id]);
+    });
+    for (const scanId of new Set(rest.map((r) => r.scan_id))) await closeIfDone(scanId);
+  }
+}
+
 export default async function approvalRoutes(app) {
   app.get('/api/queue/count', { preHandler: requireUser() }, async (req) => counts(req.user.id));
 
   // Undecided books first (oldest first), then the ones set aside for later.
   app.get('/api/queue', { preHandler: requireUser() }, async (req) => {
+    await mergeDuplicates(req.user.id);
     const items = await many(
       `${ITEM_SQL}
         WHERE s.user_id = $1 AND s.status = 'done' AND (i.decision IS NULL OR i.decision = 'later')
@@ -140,11 +184,13 @@ export default async function approvalRoutes(app) {
         [loc.id, req.user.id, kind === 'added' ? 'added' : 'seen', distance, lang === 'en' ? 'en' : 'he'],
       )).rows[0];
       return (await db.query(
-        `INSERT INTO scan_items(scan_id, title, author, isbn13, book_id, via, matched, quality, lookup_id)
-         VALUES ($1, $2, $3, $4, $5, 'barcode', $6, $7, $8) RETURNING id`,
+        `INSERT INTO scan_items(scan_id, title, author, isbn13, book_id, via, matched, quality, lookup_id, sources)
+         VALUES ($1, $2, $3, $4, $5, 'barcode', $6, $7, $8, '{barcode}') RETURNING id`,
         [scan.id, book?.title ?? `ISBN ${r.isbn}`, book?.authors?.[0] ?? null, r.isbn, book?.id ?? null, !!book, book ? 'high' : 'low', r.lookupId ?? null],
       )).rows[0];
     });
-    return { item, book, isbn: r.isbn, ...(await counts(req.user.id)) };
+    await mergeDuplicates(req.user.id);
+    const merged = (await one('SELECT decision FROM scan_items WHERE id = $1', [item.id])).decision === 'merged';
+    return { item, book, isbn: r.isbn, merged, ...(await counts(req.user.id)) };
   });
 }
