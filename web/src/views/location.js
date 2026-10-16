@@ -35,8 +35,8 @@ export default async function locationView(root, [code]) {
     <p class="row"><a class="btn" href="/l/${l.code}/edit">${t('loc.edit')}</a></p>
     ${my_pending ? `<p class="note">${t('loc.my_pending', { n: my_pending })}</p>` : ''}
     ${my_pending_edits ? `<p class="note">${t('loc.my_pending_edits', { n: my_pending_edits })}</p>` : ''}
-    ${readyScan ? `<p><a class="btn primary" href="/scan/${readyScan.id}">${t('loc.scan_ready')}</a></p>`
-      : busyScan ? `<p class="note"><a href="/scan/${busyScan.id}">${t('loc.scan_waiting')}</a></p>` : ''}
+    ${readyScan ? `<p><a class="btn primary" href="/queue">${t('loc.scan_ready')}</a></p>`
+      : busyScan ? `<p class="note"><a href="/queue">${t('loc.scan_waiting')}</a></p>` : ''}
     ${noStringsNote()}
 
     <h2>${t('loc.shelf')} <span class="count">${books.length}</span></h2>

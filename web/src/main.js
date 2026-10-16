@@ -15,7 +15,8 @@ import meView from './views/me.js';
 import topView from './views/top.js';
 import reviewView from './views/review.js';
 import aboutView from './views/about.js';
-import scanView from './views/scan.js';
+import queueView from './views/queue.js';
+import barcodeView from './views/barcode.js';
 import editLocationView from './views/edit-location.js';
 import pageView from './views/page.js';
 import { initMenu } from './menu.js';
@@ -25,9 +26,10 @@ import searchView from './views/search.js';
 const routes = [
   [/^\/$/, mapView],
   [/^\/l\/([A-Za-z0-9]{4,10})\/add$/, addBookView],
+  [/^\/l\/([A-Za-z0-9]{4,10})\/barcode$/, barcodeView],
   [/^\/l\/([A-Za-z0-9]{4,10})\/edit$/, editLocationView],
   [/^\/l\/([A-Za-z0-9]{4,10})$/, locationView],
-  [/^\/scan\/([0-9a-f-]{36})$/, scanView],
+  [/^\/(?:queue|scan\/[0-9a-f-]{36})$/, queueView], // /scan/<id>: links in older e-mails
   [/^\/add$/, addLocationView],
   [/^\/search$/, searchView],
   [/^\/login$/, loginView],
@@ -83,18 +85,18 @@ const showBadge = () => { badge.hidden = !queued; badge.textContent = t('queue.w
 onQueueChange((n) => { queued = n; showBadge(); });
 
 // Static shell text; views re-render themselves on a language change.
-// "Books from your photos are ready" — reading takes minutes, users wander off.
+// "N books wait for your approval" — reading takes minutes, users wander off.
 async function showReadyBanner(me, path) {
   document.getElementById('ready')?.remove();
-  if (!me || path === '/' || path.startsWith('/scan/')) return;
-  let scans = [];
-  try { ({ scans } = await api('/api/scans/ready')); } catch { return; }
-  if (!scans.length || document.getElementById('ready')) return;
+  if (!me || path === '/' || path === '/queue' || path.startsWith('/scan/') || /\/(add|barcode)$/.test(path)) return;
+  let c;
+  try { c = await api('/api/queue/count'); } catch { return; }
+  if (!c.open || document.getElementById('ready')) return;
   const a = document.createElement('a');
   a.id = 'ready';
   a.className = 'ready-banner';
-  a.href = `/scan/${scans[0].id}`;
-  a.textContent = t('banner.ready');
+  a.href = '/queue';
+  a.textContent = t('banner.queue', c);
   main.prepend(a);
 }
 
