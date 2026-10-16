@@ -70,10 +70,11 @@ export default async function searchView(root, _, query) {
     const p = new URLSearchParams();
     if (q) p.set('q', q);
     if (chosenKm) { p.set('km', chosenKm); p.set('at', `${pos.lat.toFixed(4)},${pos.lon.toFixed(4)}`); p.set('from', from); }
+    if (![...p.keys()].length) p.set('all', '1'); // no words, anywhere: the latest books
     navigate(`/search?${p}`);
   };
 
-  if (!text && !(pos && km)) return;
+  if (!text && !(pos && km) && !query.has('all')) return;
   const out = root.querySelector('#results');
   out.innerHTML = `<p class="muted">${t('loading')}</p>`;
   const p = new URLSearchParams({ lang: lang() });

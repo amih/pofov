@@ -1,5 +1,5 @@
 import { getMe } from './api.js';
-import { esc, CONTACT_EMAIL } from './ui.js';
+import { esc, avatarHtml, CONTACT_EMAIL } from './ui.js';
 import { t, toggleLang } from './i18n.js';
 import { canOfferInstall, install } from './install.js';
 
@@ -7,17 +7,19 @@ import { canOfferInstall, install } from './install.js';
 export function initMenu() {
   const btn = document.getElementById('menu-btn');
   btn.onclick = open;
+  document.addEventListener('seferehov:me', () => getMe(true)); // name or picture changed
 }
 
 async function open() {
   const me = await getMe();
+  // The list opens with the reader: their own picture and screen name, or "sign in".
   const items = [
+    me ? [avatarHtml(me, 30), me.screen_name || t('menu.me'), '/me', 'me'] : ['👤', 'menu.signin', '/login'],
     ['🗺️', 'menu.map', '/'],
     ['🔍', 'menu.search', '/search'],
     ['➕', 'menu.add', '/add'],
     ['🏆', 'menu.top', '/top'],
     ['🌍', 'menu.places', '/places'],
-    me ? ['👤', 'menu.me', '/me'] : ['👤', 'menu.signin', '/login'],
     ...(me ? [['🔔', 'menu.watches', '/me#watches']] : []),
     ...(me?.trust_level >= 2 ? [['✅', 'menu.review', '/review']] : []),
     ...(canOfferInstall() ? [['📲', 'menu.install', '#install']] : []),
@@ -29,7 +31,9 @@ async function open() {
   el.className = 'menu-back';
   el.innerHTML = `<nav class="menu" aria-label="${esc(t('menu.open'))}">
     <button class="x" data-close aria-label="${esc(t('menu.close'))}">✕</button>
-    <ul>${items.map(([icon, key, href]) => `<li><a href="${esc(href)}"><span>${icon}</span>${esc(t(key))}</a></li>`).join('')}</ul>
+    <ul>${items.map(([icon, key, href, cls]) => cls === 'me'
+      ? `<li><a class="me" href="/me">${icon}${esc(key)}</a></li>`
+      : `<li><a href="${esc(href)}"><span>${icon}</span>${esc(t(key))}</a></li>`).join('')}</ul>
     <p class="muted small">${esc(__APP_VERSION__)}</p>
   </nav>`;
   const close = () => { el.remove(); document.removeEventListener('keydown', onKey); };

@@ -27,13 +27,14 @@ export async function searchBooks({ text, pos, km, lang, userId }) {
   // Every parameter is referenced in every variant (Postgres must know their types).
   const where = 'AND ($4::int IS NULL OR ST_DWithin(l.geom, ST_MakePoint($3::float8, $2::float8)::geography, $4 * 1000))';
   const params = [text || null, pos?.lat ?? null, pos?.lon ?? null, km ?? null, TAKEN_DAYS];
-  // With text: books matching it. Without: every book on a shelf in the area.
+  // With text: books matching it. Without: every book on a shelf in the area (or anywhere), newest first.
   const books = text
     ? `SELECT b.id, word_similarity(search_norm($1), b.search) AS score FROM books b
         WHERE search_norm($1) <% b.search OR b.search LIKE '%' || search_norm($1) || '%'
         ORDER BY score DESC LIMIT 300`
-    : `SELECT DISTINCT s.book_id AS id, 1.0::real AS score FROM sightings s JOIN locations l ON l.id = s.location_id
-        WHERE s.status = 'approved' AND $1::text IS NULL ${where} LIMIT 1000`;
+    : `SELECT s.book_id AS id, 1.0::real AS score FROM sightings s JOIN locations l ON l.id = s.location_id
+        WHERE s.status = 'approved' AND $1::text IS NULL ${where}
+        GROUP BY s.book_id ORDER BY max(s.created_at) DESC LIMIT 1000`;
   const rows = await many(
     `WITH m AS (${books}),
      latest AS (
@@ -61,14 +62,15 @@ export async function searchBooks({ text, pos, km, lang, userId }) {
     b.places.sort((x, y) => (y.present - x.present) || ((x.distance_m ?? 0) - (y.distance_m ?? 0)) || (new Date(y.at) - new Date(x.at)));
     b.present = b.places.some((p) => p.present);
     b.nearest = Math.min(...b.places.map((p) => p.distance_m ?? Infinity));
+    b.latest = Math.max(...b.places.map((p) => new Date(p.at)));
   }
-  list.sort((x, y) => (y.present - x.present) || (y.score - x.score) || (x.nearest - y.nearest));
+  list.sort((x, y) => (y.present - x.present) || (y.score - x.score) || (x.nearest - y.nearest) || (y.latest - x.latest));
   const top = list.slice(0, RESULTS);
   const details = top.length ? await many(
     'SELECT id, title, authors, year, cover_url FROM books WHERE id = ANY($1)', [top.map((b) => b.id)]) : [];
   const byId = new Map(details.map((d) => [d.id, d]));
   const waiting = await waitingFor(top.map((b) => b.id), userId);
-  return top.map(({ score, nearest, ...b }) => ({ ...byId.get(b.id), ...b, places: b.places.slice(0, 8), waiting: waiting.get(b.id) ?? null }));
+  return top.map(({ score, nearest, latest, ...b }) => ({ ...byId.get(b.id), ...b, places: b.places.slice(0, 8), waiting: waiting.get(b.id) ?? null }));
 }
 
 export default async function finderRoutes(app) {
@@ -78,7 +80,6 @@ export default async function finderRoutes(app) {
     const text = String(req.query.q ?? '').trim().slice(0, 100);
     const pos = parseLatLon(req.query.lat, req.query.lon);
     const km = KM_CHOICES.includes(Number(req.query.km)) ? Number(req.query.km) : null;
-    if (!text && !(pos && km)) return reply.code(400).send({ error: 'query_required' });
     if (text && text.length < 2) return { books: [] };
     return { books: await searchBooks({ text, pos, km, lang: req.query.lang === 'en' ? 'en' : 'he', userId: req.user?.id }) };
   });

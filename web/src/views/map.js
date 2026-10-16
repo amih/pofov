@@ -37,7 +37,7 @@ export default function mapView(root, _, query) {
   root.innerHTML = `
     <div id="map"></div>
     <button class="fab-locate" title="${t('map.locate')}" aria-label="${t('map.locate')}">◎</button>
-    <a class="fab-add" href="/add">${t('map.add')}</a>`;
+    <div class="fab-row"><a class="fab-add" href="/add">${t('map.add')}</a><a class="fab-search" href="/search">${t('map.search')}</a></div>`;
   // /?at=lat,lon,zoom — links from the place pages
   const at = (query?.get('at') ?? '').split(',').map(Number);
   const start = at.length === 3 && at.every(Number.isFinite) ? { lat: at[0], lon: at[1], zoom: at[2] } : savedView();
@@ -110,6 +110,13 @@ export default function mapView(root, _, query) {
     } catch (e) { if (fly) toast(e.message); }
   }
   root.querySelector('.fab-locate').onclick = () => locate(true);
+  // Search opens on every book around what the map shows; typing narrows it down.
+  root.querySelector('.fab-search').onclick = (e) => {
+    const c = map.getCenter();
+    const z = map.getZoom();
+    const km = z >= 15 ? 1 : z >= 12 ? 5 : z >= 10 ? 20 : 50;
+    e.currentTarget.href = `/search?${new URLSearchParams({ km, at: `${c.lat.toFixed(4)},${c.lng.toFixed(4)}`, from: t('find.map_area') })}`;
+  };
   if (!start) locate(false);
 
   return () => { removed = true; map.remove(); };

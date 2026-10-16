@@ -1,11 +1,11 @@
 import './style.css';
 import { initUpdates, maybeApply } from './update.js';
 import { startQueue, onQueueChange, flush } from './queue.js';
-import { toast, avatarHtml } from './ui.js';
+import { toast } from './ui.js';
 import { api, getMe } from './api.js';
 import { navigate } from './nav.js';
 import { trackPageView } from './analytics.js';
-import { t, lang, applyLang, toggleLang } from './i18n.js';
+import { t, applyLang } from './i18n.js';
 import mapView from './views/map.js';
 import locationView from './views/location.js';
 import addLocationView from './views/add-location.js';
@@ -47,10 +47,6 @@ async function render() {
   cleanup = null;
   const path = location.pathname.replace(/\/+$/, '') || '/';
   const [, view, params] = routes.map(([re, v]) => [re, v, path.match(re)]).find(([, , m]) => m) ?? [];
-  document.querySelectorAll('nav.tabs a').forEach((a) => {
-    const href = a.getAttribute('href');
-    a.classList.toggle('active', href === '/' ? path === '/' : path.startsWith(href));
-  });
   document.body.classList.toggle('full', path === '/');
   const me = await getMe();
   if (me && !me.screen_name && !['/me', '/about'].includes(path)) {
@@ -104,13 +100,9 @@ async function showReadyBanner(me, path) {
 
 function translateShell() {
   document.querySelectorAll('[data-t]').forEach((el) => { el.textContent = t(el.dataset.t); });
-  const btn = document.getElementById('lang');
-  btn.textContent = t('lang.other');
-  btn.lang = lang() === 'he' ? 'en' : 'he';
   showBadge();
 }
-document.getElementById('lang').onclick = toggleLang;
-document.addEventListener('seferehov:lang', () => { translateShell(); showMeTab(); render(); });
+document.addEventListener('seferehov:lang', () => { translateShell(); render(); });
 applyLang();
 translateShell();
 
@@ -122,12 +114,4 @@ window.addEventListener('online', async () => {
   if (sent.length) toast(t('queue.uploaded', { n: sent.length }));
 });
 document.getElementById('app-version').textContent = __APP_VERSION__;
-async function showMeTab(e) {
-  const me = await getMe(Boolean(e));
-  const tab = document.querySelector('nav.tabs a[href="/me"]');
-  tab.innerHTML = me ? `${avatarHtml(me, 26)}${me.screen_name ? '' : t('nav.me')}` : `<span>👤</span>${t('nav.signin')}`;
-  if (me?.screen_name) tab.insertAdjacentText('beforeend', [...me.screen_name].slice(0, 12).join(''));
-}
-document.addEventListener('seferehov:me', showMeTab);
-showMeTab();
 render();

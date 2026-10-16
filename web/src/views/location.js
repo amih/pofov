@@ -32,6 +32,7 @@ export default async function locationView(root, [code]) {
       <button class="btn" id="check">${t('loc.still_here')}</button>
       <a class="btn" href="${nav}" target="_blank" rel="noopener">${t('loc.directions')}</a>
     </div>
+    <p class="row"><a class="btn" href="/l/${l.code}/edit">${t('loc.edit')}</a></p>
     ${my_pending ? `<p class="note">${t('loc.my_pending', { n: my_pending })}</p>` : ''}
     ${my_pending_edits ? `<p class="note">${t('loc.my_pending_edits', { n: my_pending_edits })}</p>` : ''}
     ${readyScan ? `<p><a class="btn primary" href="/scan/${readyScan.id}">${t('loc.scan_ready')}</a></p>`
@@ -70,10 +71,7 @@ export default async function locationView(root, [code]) {
     ${activity.length ? `<h2>${t('loc.activity')}</h2><ul class="activity">${activity.map((a) =>
       `<li>${avatarHtml({ avatar: a.avatar, name: a.who }, 22)} ${t(`activity.${a.kind}_html`, { who: esc(a.who), title: esc(a.title) })} · ${timeAgo(a.created_at)}</li>`).join('')}</ul>` : ''}
 
-    <p class="muted small">
-      <a href="/l/${l.code}/edit">${t('loc.edit')}</a> ·
-      <a href="/api/locations/${l.code}/sign?lang=${lang()}" target="_blank">${t('loc.print')}</a>
-    </p>
+    <p class="muted small"><a href="/api/locations/${l.code}/sign?lang=${lang()}" target="_blank">${t('loc.print')}</a></p>
   </section>`;
 
   const needLogin = () => { if (!me) { location.href = `/login?next=${encodeURIComponent(location.pathname)}`; return true; } };
