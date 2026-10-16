@@ -50,6 +50,24 @@ async function locationByCode(code) {
 const visibleTo = (loc, user) =>
   loc && (loc.status === 'approved' || (user && (user.id === loc.created_by || user.trust_level >= 2)));
 
+// One report of one book at one library; approved at once for trusted readers on the spot.
+export async function recordSighting({ user, loc, book, kind, distance, photoId = null }) {
+  const far = distance == null || distance > config.maxReportDistanceM;
+  const status = loc.status === 'approved' ? initialStatus(user, { far }) : 'pending';
+  return tx(async (db) => {
+    const row = (await db.query(
+      `INSERT INTO sightings(book_id, location_id, user_id, kind, status, photo_id, distance_m)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, status`,
+      [book.id, loc.id, user.id, kind, status, photoId, distance],
+    )).rows[0];
+    if (status === 'approved') {
+      await award(db, { userId: user.id, points: pointsForSighting(kind), reason: `sighting_${kind}`, refType: 'sighting', refId: row.id });
+      await db.query('UPDATE locations SET last_checked_at = now() WHERE id = $1', [loc.id]);
+    }
+    return row;
+  });
+}
+
 async function distanceTo(locId, pos) {
   if (!pos) return null;
   const r = await one(
@@ -284,22 +302,8 @@ export default async function locationRoutes(app) {
     if (!book) return reply.code(422).send({ error: 'book_not_found' });
 
     const distance = await distanceTo(loc.id, parseLatLon(fields.lat, fields.lon));
-    const far = distance == null || distance > config.maxReportDistanceM;
     const photo = files.photo && await savePhoto(files.photo, { userId: req.user.id, kind: 'cover' });
-    const status = loc.status === 'approved' ? initialStatus(req.user, { far }) : 'pending';
-
-    const s = await tx(async (db) => {
-      const row = (await db.query(
-        `INSERT INTO sightings(book_id, location_id, user_id, kind, status, photo_id, distance_m)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, status`,
-        [book.id, loc.id, req.user.id, kind, status, photo?.id ?? null, distance],
-      )).rows[0];
-      if (status === 'approved') {
-        await award(db, { userId: req.user.id, points: pointsForSighting(kind), reason: `sighting_${kind}`, refType: 'sighting', refId: row.id });
-        await db.query('UPDATE locations SET last_checked_at = now() WHERE id = $1', [loc.id]);
-      }
-      return row;
-    });
+    const s = await recordSighting({ user: req.user, loc, book, kind, distance, photoId: photo?.id });
     return { sighting: s, book };
   });
 

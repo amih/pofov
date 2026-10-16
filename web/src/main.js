@@ -23,6 +23,7 @@ import pageView from './views/page.js';
 import { initMenu } from './menu.js';
 import './install.js';
 import searchView from './views/search.js';
+import myBooksView from './views/my-books.js';
 
 const routes = [
   [/^\/$/, mapView],
@@ -34,6 +35,7 @@ const routes = [
   [/^\/(?:queue|scan\/[0-9a-f-]{36})$/, queueView], // /scan/<id>: links in older e-mails
   [/^\/add$/, addLocationView],
   [/^\/search$/, searchView],
+  [/^\/books$/, myBooksView],
   [/^\/login$/, loginView],
   [/^\/me$/, meView],
   [/^\/top$/, topView],

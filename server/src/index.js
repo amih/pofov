@@ -13,6 +13,7 @@ import signRoutes from './sign.js';
 import editRoutes from './edits.js';
 import scanRoutes, { startScanWorker } from './scans.js';
 import approvalRoutes from './approvals.js';
+import myBookRoutes from './mybooks.js';
 import { startAdminNotifier } from './notify.js';
 import seoRoutes, { renderShell } from './seo.js';
 import finderRoutes, { startWatchNotifier } from './finder.js';
@@ -47,6 +48,7 @@ await app.register(signRoutes);
 await app.register(editRoutes);
 await app.register(scanRoutes);
 await app.register(approvalRoutes);
+await app.register(myBookRoutes);
 await app.register(seoRoutes);
 await app.register(finderRoutes);
 

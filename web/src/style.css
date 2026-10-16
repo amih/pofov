@@ -288,3 +288,13 @@ body:has(.decide) .install-banner, body:has(.scanner.live) .install-banner { dis
 .viewer .prev, .viewer .next { top: 50%; transform: translateY(-50%); }
 .viewer .prev { left: 8px; }
 .viewer .next { right: 8px; }
+
+/* My books */
+.btn.small { padding: 6px 10px; font-size: .9rem; }
+.lib-list { display: grid; gap: 6px; margin: 8px 0 12px; max-height: 45vh; overflow: auto; }
+.lib-opt { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.lib-opt .name { flex: 1; min-width: 0; }
+.lib-opt .small { flex: none; }
+.lib-opt:has(input:checked) { border-color: var(--wood); }
+.from-mine { margin: 12px 0; }
+.from-mine .row { gap: 6px; }

@@ -18,6 +18,7 @@ async function open() {
     me ? [avatarHtml(me, 30), me.screen_name || t('menu.me'), '/me', 'me'] : ['👤', 'menu.signin', '/login'],
     ['🗺️', 'menu.map', '/'],
     ['🔍', 'menu.search', '/search'],
+    ['📚', 'menu.mybooks', '/books'],
     ['➕', 'menu.add', '/add'],
     ['🏆', 'menu.top', '/top'],
     ['🌍', 'menu.places', '/places'],

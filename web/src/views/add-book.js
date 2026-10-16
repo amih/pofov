@@ -3,6 +3,7 @@ import { enqueue } from '../queue.js';
 import { navigate } from '../nav.js';
 import { esc, getPosition, shrinkImage, toast, noStringsNote } from '../ui.js';
 import { t, lang } from '../i18n.js';
+import { placeBook } from '../mybooks.js';
 
 // Three ways in: shelf photos, a short video, or barcodes one by one. Photos and
 // videos upload in the background so the next one can be taken right away; every
@@ -24,6 +25,7 @@ export default async function addBookView(root, [code], query) {
         <input type="file" accept="video/*" capture="environment" hidden id="video"></label>
       <a class="big-btn" id="barcode" href="/l/${code}/barcode"><span>▥</span><b>${t('add3.barcode')}</b><small>${t('add3.barcode_note')}</small></a>
     </div>
+    <div class="from-mine" id="from-mine" hidden></div>
     <ul class="uploads" id="uploads"></ul>
     <p id="queue-link"></p>
     <p class="muted small">${t('addbook.shelf_lead')}</p>
@@ -58,6 +60,22 @@ export default async function addBookView(root, [code], query) {
     } catch { /* offline */ }
   }
   showQueue();
+
+  // Books the reader scanned at home: one tap reports one of them left here.
+  const fromMine = root.querySelector('#from-mine');
+  async function showMine() {
+    const d = await api('/api/my-books').catch(() => null);
+    fromMine.hidden = !d?.home.length;
+    if (!d?.home.length) return;
+    fromMine.innerHTML = `<p><b>${t('mybooks.from_mine')}</b></p><p class="row">${d.home.map((r) =>
+      `<button class="btn small" data-mine="${r.id}">📍 ${esc(r.title)}</button>`).join('')}</p>`;
+    fromMine.onclick = async (e) => {
+      const b = e.target.closest('[data-mine]');
+      const item = b && d.home.find((r) => r.id === Number(b.dataset.mine));
+      if (item && await placeBook(item, code)) showMine();
+    };
+  }
+  showMine();
 
   // One line per upload, so the next photo can be taken while this one is still sending.
   const list = root.querySelector('#uploads');
