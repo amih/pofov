@@ -17,6 +17,7 @@ import reviewView from './views/review.js';
 import aboutView from './views/about.js';
 import queueView from './views/queue.js';
 import barcodeView from './views/barcode.js';
+import bookView from './views/book.js';
 import editLocationView from './views/edit-location.js';
 import pageView from './views/page.js';
 import { initMenu } from './menu.js';
@@ -27,6 +28,7 @@ const routes = [
   [/^\/$/, mapView],
   [/^\/l\/([A-Za-z0-9]{4,10})\/add$/, addBookView],
   [/^\/l\/([A-Za-z0-9]{4,10})\/barcode$/, barcodeView],
+  [/^\/l\/([A-Za-z0-9]{4,10})\/b\/(\d+)$/, bookView],
   [/^\/l\/([A-Za-z0-9]{4,10})\/edit$/, editLocationView],
   [/^\/l\/([A-Za-z0-9]{4,10})$/, locationView],
   [/^\/(?:queue|scan\/[0-9a-f-]{36})$/, queueView], // /scan/<id>: links in older e-mails

@@ -2,6 +2,7 @@ import { config, POINTS } from './config.js';
 import { one, many, tx } from './db.js';
 import { requireUser } from './auth.js';
 import { savePhoto, photoUrls, avatarUrl } from './photos.js';
+import { bookDetails } from './details.js';
 import { lookupIsbn, upsertBook, findOrCreateBook } from './books.js';
 import { readForm } from './multipart.js';
 import { initialStatus, locationStatus, award, pointsForSighting } from './moderation.js';
@@ -203,6 +204,46 @@ export default async function locationRoutes(app) {
       if (!already) await award(db, { userId: req.user.id, points: POINTS.check, reason: 'check', refType: 'location', refId: loc.id });
     });
     return { ok: true };
+  });
+
+  // One book at one library: every picture of it taken there, the large covers and
+  // the back-cover text found online, and whether it is still on the shelf.
+  app.get('/api/locations/:code/books/:id', async (req, reply) => {
+    const loc = await locationByCode(req.params.code);
+    if (!visibleTo(loc, req.user)) return reply.code(404).send({ error: 'not_found' });
+    let book = await one('SELECT * FROM books WHERE id = $1', [Number(req.params.id)]);
+    if (!book) return reply.code(404).send({ error: 'not_found' });
+    book = await bookDetails(book);
+    const shelf = await many(
+      `SELECT * FROM (
+         SELECT p.path AS url, 'cover' AS kind, s.created_at FROM sightings s JOIN photos p ON p.id = s.photo_id
+          WHERE s.location_id = $1 AND s.book_id = $2 AND s.status = 'approved'
+         UNION ALL
+         SELECT i.crop_path, 'spine', s.created_at FROM scan_items i JOIN sightings s ON s.id = i.sighting_id
+          WHERE s.location_id = $1 AND s.book_id = $2 AND s.status = 'approved' AND i.crop_path IS NOT NULL
+         UNION ALL
+         SELECT i.frame_path, 'shelf', s.created_at FROM scan_items i JOIN sightings s ON s.id = i.sighting_id
+          WHERE s.location_id = $1 AND s.book_id = $2 AND s.status = 'approved' AND i.frame_path IS NOT NULL) x
+        ORDER BY created_at DESC LIMIT 12`,
+      [loc.id, book.id],
+    );
+    const latest = await one(
+      `SELECT kind, created_at FROM sightings WHERE location_id = $1 AND book_id = $2 AND status = 'approved'
+        ORDER BY created_at DESC LIMIT 1`,
+      [loc.id, book.id],
+    );
+    const seen = new Set();
+    return {
+      location: { code: loc.code, name: loc.name },
+      book: {
+        id: book.id, isbn13: book.isbn13, title: book.title, authors: book.authors, year: book.year, publisher: book.publisher,
+        cover_url: book.cover_url, front_url: book.front_url, back_url: book.back_url,
+        description: book.description, details_source: book.details_source,
+      },
+      photos: shelf.filter((p) => !seen.has(p.url) && seen.add(p.url)).map((p) => ({ url: `/uploads/${p.url}`, kind: p.kind, at: p.created_at })),
+      here: latest ? { present: ['seen', 'added'].includes(latest.kind), kind: latest.kind, at: latest.created_at } : null,
+      waiting: (await waitingFor([book.id], req.user?.id)).get(book.id) ?? null,
+    };
   });
 
   app.get('/api/books/lookup', async (req, reply) => {

@@ -44,9 +44,9 @@ export default async function locationView(root, [code]) {
     <ul class="books">
       ${books.map((b) => `
         <li data-id="${b.id}">
-          ${b.cover_url ? `<img src="${esc(b.cover_url)}" alt="" loading="lazy">` : '<div class="nocover">📖</div>'}
+          <a href="/l/${l.code}/b/${b.id}" class="cover-link">${b.cover_url ? `<img src="${esc(b.cover_url)}" alt="" loading="lazy">` : '<div class="nocover">📖</div>'}</a>
           <div class="meta">
-            <strong>${esc(b.title)}</strong>
+            <a href="/l/${l.code}/b/${b.id}" class="title-link"><strong>${esc(b.title)}</strong></a>
             <span>${esc(b.authors.join(', '))}${b.year ? ` · ${b.year}` : ''}</span>
             <span class="muted">${t('loc.seen', { when: timeAgo(b.last_seen) })}</span>
             ${b.waiting?.others ? `<span class="waiting">👥 ${t('watch.waiting', { n: b.waiting.others, mine: b.waiting.mine })}</span>` : ''}
@@ -58,9 +58,9 @@ export default async function locationView(root, [code]) {
     ${taken.length ? `<h2>${t('loc.taken_title')} <span class="count">${taken.length}</span></h2>
     <ul class="books taken">${taken.map((b, i) => `
         <li>
-          ${b.cover_url ? `<img src="${esc(b.cover_url)}" alt="" loading="lazy">` : '<div class="nocover">📖</div>'}
+          <a href="/l/${l.code}/b/${b.id}" class="cover-link">${b.cover_url ? `<img src="${esc(b.cover_url)}" alt="" loading="lazy">` : '<div class="nocover">📖</div>'}</a>
           <div class="meta">
-            <strong>${esc(b.title)}</strong>
+            <a href="/l/${l.code}/b/${b.id}" class="title-link"><strong>${esc(b.title)}</strong></a>
             <span>${esc(b.authors.join(', '))}${b.year ? ` · ${b.year}` : ''}</span>
             <span class="muted">${t(b.kind === 'gone' ? 'loc.gone_when' : 'loc.taken_when', { when: timeAgo(b.taken_at) })}</span>
             ${b.waiting?.others ? `<span class="waiting">👥 ${t('watch.waiting', { n: b.waiting.others, mine: b.waiting.mine })}</span>` : ''}
