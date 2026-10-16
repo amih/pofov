@@ -24,8 +24,8 @@ if (mode === '--requeue') {
     await copyFile(f, join(dir, name));
     media.push({ path: name, type: isVideo(f) ? 'video' : 'image' });
   }
-  await q(`INSERT INTO scans(id, location_id, user_id, kind, media, distance_m, lang) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [id, old.location_id, old.user_id, old.kind, JSON.stringify(media), old.distance_m, old.lang]);
+  await q(`INSERT INTO scans(id, location_id, user_id, kind, media, distance_m, lang, source) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [id, old.location_id, old.user_id, old.kind, JSON.stringify(media), old.distance_m, old.lang, media.some((m) => m.type === 'video') ? 'video' : 'photo']);
   console.log(`queued ${id}`);
   process.exit(0);
 }
