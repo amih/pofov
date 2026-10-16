@@ -213,7 +213,12 @@ export default async function locationRoutes(app) {
     if (!visibleTo(loc, req.user)) return reply.code(404).send({ error: 'not_found' });
     let book = await one('SELECT * FROM books WHERE id = $1', [Number(req.params.id)]);
     if (!book) return reply.code(404).send({ error: 'not_found' });
-    book = await bookDetails(book);
+    // The first lookup can take a while (the National Library is slow): answer with what
+    // we have after a few seconds; the page asks again when told the lookup is still going.
+    const details = bookDetails(book);
+    const ready = await Promise.race([details, new Promise((r) => setTimeout(r, 5000, null))]);
+    const pending = !ready;
+    if (ready) book = ready;
     const shelf = await many(
       `SELECT * FROM (
          SELECT p.path AS url, 'cover' AS kind, s.created_at FROM sightings s JOIN photos p ON p.id = s.photo_id
@@ -238,7 +243,7 @@ export default async function locationRoutes(app) {
       book: {
         id: book.id, isbn13: book.isbn13, title: book.title, authors: book.authors, year: book.year, publisher: book.publisher,
         cover_url: book.cover_url, front_url: book.front_url, back_url: book.back_url,
-        description: book.description, details_source: book.details_source,
+        description: book.description, details_source: book.details_source, details_pending: pending,
       },
       photos: shelf.filter((p) => !seen.has(p.url) && seen.add(p.url)).map((p) => ({ url: `/uploads/${p.url}`, kind: p.kind, at: p.created_at })),
       here: latest ? { present: ['seen', 'added'].includes(latest.kind), kind: latest.kind, at: latest.created_at } : null,

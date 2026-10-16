@@ -13,6 +13,9 @@ export default async function bookView(root, [code, id]) {
     return;
   }
   const { book: b, photos, here, waiting, location: l } = data;
+  // Covers and the back-cover text are still being looked up: show this, then look again.
+  let again = null;
+  if (b.details_pending) again = setTimeout(() => { if (location.pathname === `/l/${code}/b/${id}`) bookView(root, [code, id]); }, 6000);
 
   // A cover photo taken at the shelf first; then the covers found online (so a
   // blurry spine is never all there is); then the spine cut-outs and whole-shelf photos.
@@ -33,7 +36,8 @@ export default async function bookView(root, [code, id]) {
     <h1>${esc(b.title)}</h1>
     <p>${esc((b.authors ?? []).join(', '))}${b.year ? ` · ${b.year}` : ''}${b.publisher ? ` · ${esc(b.publisher)}` : ''}</p>
     ${here ? `<p class="${here.present ? 'ok' : 'muted'}">${here.present ? t('book.here', { when: timeAgo(here.at) }) : t(here.kind === 'gone' ? 'loc.gone_when' : 'loc.taken_when', { when: timeAgo(here.at) })}</p>` : ''}
-    ${b.description ? `<h2>${t('book.blurb')}</h2><p class="desc blurb" dir="auto">${esc(b.description)}</p>` : `<p class="muted small">${t('book.no_blurb')}</p>`}
+    ${b.description ? `<h2>${t('book.blurb')}</h2><p class="desc blurb" dir="auto">${esc(b.description)}</p>`
+      : b.details_pending ? `<p class="progress-line small"><span class="spinner"></span> ${t('book.looking')}</p>` : `<p class="muted small">${t('book.no_blurb')}</p>`}
     ${waiting?.others ? `<p class="waiting">👥 ${t('watch.waiting', { n: waiting.others, mine: waiting.mine })}</p>` : ''}
     <p class="row"><button class="btn" id="watch">${t(waiting?.mine ? 'watch.on' : 'watch.button')}</button></p>
     ${b.isbn13 ? `<p class="muted small" dir="ltr">ISBN ${esc(b.isbn13)}</p>` : ''}
@@ -45,6 +49,7 @@ export default async function bookView(root, [code, id]) {
     const btn = e.target.closest('[data-i]');
     if (btn) viewer(pics, Number(btn.dataset.i));
   });
+  return () => clearTimeout(again);
 }
 
 // Full-screen picture, pinch to zoom, arrows/swipe between pictures.
