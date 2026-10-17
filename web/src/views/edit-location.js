@@ -25,7 +25,10 @@ export default async function editLocationView(root, [code]) {
       <label>${t('addloc.name')} <input name="name" maxlength="120" value="${esc(l.name ?? '')}"></label>
       <label>${t('addloc.hint')} <textarea name="description" maxlength="1000" rows="3">${esc(l.description ?? '')}</textarea></label>
       <p class="field-note">${t('privacy.hint')}</p>
-      <label class="check"><input type="checkbox" name="restricted" ${l.restricted ? 'checked' : ''}> ${t('addloc.restricted')}</label>
+      <fieldset class="yesno"><legend>${t('addloc.restricted_q')}</legend>
+        <label class="check"><input type="radio" name="restricted" value="0" ${l.restricted ? '' : 'checked'}> ${t('addloc.restricted_no')}</label>
+        <label class="check"><input type="radio" name="restricted" value="1" ${l.restricted ? 'checked' : ''}> ${t('addloc.restricted_yes')}</label>
+      </fieldset>
       <label class="check"><input type="checkbox" name="move"> ${t('edit.move')}</label>
       <p class="muted small">${t('edit.move_note')}</p>
       <label class="check"><input type="checkbox" name="removed"> ${t('edit.removed')}</label>
@@ -47,7 +50,7 @@ export default async function editLocationView(root, [code]) {
     if (confirmPrivate) fd.append('confirm_private', '1');
     fd.append('name', form.name.value);
     fd.append('description', form.description.value);
-    fd.append('restricted', form.restricted.checked ? '1' : '0');
+    fd.append('restricted', form.restricted.value === '1' ? '1' : '0');
     if (form.removed.checked) fd.append('removed', '1');
     if (form.note.value.trim()) fd.append('note', form.note.value);
     if (photo) fd.append('photo', photo, 'photo.jpg');
