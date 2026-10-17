@@ -29,7 +29,6 @@ export default async function addLocationView(root) {
         <label>${t('addloc.hint')} <span class="muted">${t('optional')}</span>
           <textarea name="description" maxlength="1000" rows="3" placeholder="${t('addloc.hint_ph')}"></textarea></label>
         <p class="field-note">${t('privacy.hint')}</p>
-        <label class="check"><input type="checkbox" name="restricted"> ${t('addloc.restricted')}</label>
         <p class="row"><button class="btn primary" type="button" data-next>${t('wiz.next')}</button>
           <button class="btn" type="button" data-skip>${t('wiz.skip_name')}</button>
           <button class="link" type="button" data-prev>${t('wiz.back')}</button></p>
@@ -38,6 +37,10 @@ export default async function addLocationView(root) {
         <p class="muted">${t('wiz.place_lead')}</p>
         <div id="mini-map" class="mini-map"></div>
         <p id="gps" class="muted small">${t('addloc.gps_wait')}</p>
+        <fieldset class="yesno"><legend>${t('addloc.restricted_q')}</legend>
+          <label class="check"><input type="radio" name="restricted" value="0" checked> ${t('addloc.restricted_no')}</label>
+          <label class="check"><input type="radio" name="restricted" value="1"> ${t('addloc.restricted_yes')}</label>
+        </fieldset>
         <p class="row"><button class="btn primary big" type="submit">${t('addloc.submit')}</button>
           <button class="link" type="button" data-prev>${t('wiz.back')}</button></p>
       </div>
@@ -82,7 +85,7 @@ export default async function addLocationView(root) {
   };
   form.addEventListener('click', (e) => {
     if (e.target.closest('[data-next]')) show(step + 1);
-    else if (e.target.closest('[data-skip]')) { form.name.value = ''; form.description.value = ''; form.restricted.checked = false; show(step + 1); }
+    else if (e.target.closest('[data-skip]')) { form.name.value = ''; form.description.value = ''; show(step + 1); }
     else if (e.target.closest('[data-prev]')) show(step - 1);
   });
   show(0);
@@ -101,7 +104,7 @@ export default async function addLocationView(root) {
     const fields = {
       lat: pos.lat, lon: pos.lon, accuracy: pos.accuracy ?? '',
       name: form.name.value, description: form.description.value,
-      restricted: form.restricted.checked ? '1' : '0', force: force ? '1' : '0', confirm_private: confirmPrivate ? '1' : '0',
+      restricted: form.restricted.value === '1' ? '1' : '0', force: force ? '1' : '0', confirm_private: confirmPrivate ? '1' : '0',
     };
     if (!navigator.onLine) {
       await enqueue('/api/locations', fields, { photo }, 'library');

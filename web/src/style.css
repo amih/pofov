@@ -328,3 +328,7 @@ button.big-btn { font: inherit; text-align: start; width: 100%; }
 .wiz-steps li::before { content: counter(wiz) ". "; }
 .wiz-steps li.on { color: var(--ink); font-weight: 700; border-color: var(--wood-light); }
 .wiz-steps li.done { border-color: var(--green); }
+.yesno { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; margin: 10px 0; }
+.yesno legend { font-weight: 700; padding: 0 4px; }
+.yesno input { width: auto; flex: none; margin: 0; }
+.yesno label.check { padding: 6px 0; }
