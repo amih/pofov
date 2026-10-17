@@ -61,6 +61,17 @@ export async function readCover(front, back = null) {
   return { title: book?.title ?? null, author: book?.author ?? null, quality: book?.quality ?? 'low', isbn };
 }
 
+// The four corners of the book cover in a photo of one book (held in a hand, lying on
+// a table): [[x, y] × 4] as fractions of the upright picture's width and height, or null.
+const CORNERS_PROMPT = 'This photo shows one book. Find the four corners of the book cover (the printed rectangle, not the hand or background). Output JSON: [{"point_2d":[x,y],"label":"top-left"},{"point_2d":[x,y],"label":"top-right"},{"point_2d":[x,y],"label":"bottom-right"},{"point_2d":[x,y],"label":"bottom-left"}]';
+export async function coverCorners(buffer) {
+  const jpeg = await sharp(buffer).rotate().resize(1280, 1280, { fit: 'inside' }).jpeg({ quality: 88 }).toBuffer();
+  const out = await generate(jpeg, CORNERS_PROMPT, 300);
+  // Qwen3-VL answers in 0–1000 coordinates relative to the image.
+  const pts = [...out.matchAll(/"point_2d"\s*:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/g)].map((m) => [m[1] / 1000, m[2] / 1000]);
+  return pts.length === 4 ? pts : null;
+}
+
 async function generate(jpeg, prompt, numPredict) {
   const res = await fetch(`${config.vision.url}/api/generate`, {
     method: 'POST',

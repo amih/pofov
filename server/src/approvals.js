@@ -13,7 +13,7 @@ import { normTitle } from './vision.js';
 
 const ITEM_SQL = `
   SELECT i.id, i.title, i.author, i.isbn13, i.via, i.matched, i.quality, i.frame_path, i.crop_path, i.back_path, i.decision, i.sources,
-         s.id AS scan_id, s.kind, s.source, l.code, l.name AS location_name,
+         s.id AS scan_id, s.kind, s.source, s.owner, s.friend_name, l.code, l.name AS location_name,
          b.id AS book_id, b.title AS book_title, b.authors AS book_authors, b.cover_url, b.year
     FROM scan_items i JOIN scans s ON s.id = i.scan_id LEFT JOIN locations l ON l.id = s.location_id
     LEFT JOIN books b ON b.id = i.book_id`;
@@ -24,7 +24,7 @@ const publicItem = ({ frame_path, crop_path, back_path, ...i }) => ({
 
 // A cover photo from the queue becomes a photo of the book (the same file, re-encoded already).
 const photoOf = async (path, userId, kind) => path && (await one(
-  'INSERT INTO photos(user_id, kind, path, thumb_path) VALUES ($1, $2, $3, $3) RETURNING id', [userId, kind, path])).id;
+  'INSERT INTO photos(user_id, kind, path, thumb_path, cropped_at) VALUES ($1, $2, $3, $3, now()) RETURNING id', [userId, kind, path])).id;
 
 async function counts(userId) {
   return one(
@@ -60,7 +60,8 @@ export async function approveItem(item, scan, user, { title, author } = {}) {
   const photoId = covers ? await photoOf(item.frame_path, user.id, 'cover') : null;
   const backPhotoId = covers ? await photoOf(item.back_path, user.id, 'back') : null;
   if (!scan.location_id) { // one of the reader's own books (My books)
-    await q('INSERT INTO my_books(user_id, book_id, photo_id, back_photo_id) VALUES ($1, $2, $3, $4)', [user.id, book.id, photoId, backPhotoId]);
+    await q('INSERT INTO my_books(user_id, book_id, photo_id, back_photo_id, owner, friend_name) VALUES ($1, $2, $3, $4, COALESCE($5, \'mine\'), $6)',
+      [user.id, book.id, photoId, backPhotoId, scan.owner, scan.friend_name]);
     return { sighting: null, book, edited };
   }
   const loc = await one('SELECT id, status FROM locations WHERE id = $1', [scan.location_id]);

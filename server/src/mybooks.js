@@ -10,7 +10,7 @@ import { parseLatLon } from './util.js';
 import { bookDetails, missingParts } from './details.js';
 
 const LIST_SQL = `
-  SELECT m.id, m.created_at, m.placed_at, b.id AS book_id, b.isbn13, b.title, b.authors, b.year,
+  SELECT m.id, m.created_at, m.placed_at, m.owner, m.friend_name, b.id AS book_id, b.isbn13, b.title, b.authors, b.year,
          COALESCE(b.front_url, b.cover_url) AS cover_url, p.path, p.thumb_path,
          l.code, l.name AS location_name, s.status AS sighting_status
     FROM my_books m JOIN books b ON b.id = m.book_id
@@ -19,10 +19,20 @@ const LIST_SQL = `
     LEFT JOIN sightings s ON s.id = m.sighting_id`;
 const publicRow = ({ path, thumb_path, ...r }) => ({ ...r, photo: path ? photoUrls({ path, thumb_path }) : null });
 
+// Whose book: the reader's own, a friend's at the friend's home, or borrowed from a friend.
+export const ownerOf = (f) => {
+  const owner = ['friend', 'borrowed'].includes(f.owner) ? f.owner : 'mine';
+  return { owner, friendName: owner === 'mine' ? null : String(f.friend_name ?? '').trim().slice(0, 80) || null };
+};
+
 export default async function myBookRoutes(app) {
   app.get('/api/my-books', { preHandler: requireUser() }, async (req) => {
     const rows = (await many(`${LIST_SQL} WHERE m.user_id = $1 ORDER BY m.placed_at DESC NULLS FIRST, m.created_at DESC LIMIT 500`, [req.user.id])).map(publicRow);
-    return { home: rows.filter((r) => !r.placed_at), placed: rows.filter((r) => r.placed_at) };
+    return {
+      home: rows.filter((r) => !r.placed_at && r.owner === 'mine'),
+      friends: rows.filter((r) => !r.placed_at && r.owner !== 'mine'),
+      placed: rows.filter((r) => r.placed_at),
+    };
   });
 
   // By ISBN (a title is needed only when no catalogue knows it), or by title and author.
@@ -46,8 +56,9 @@ export default async function myBookRoutes(app) {
     if (had && !fields.again) return { item: had, book, already: true, missing: await missingParts(book) };
     const photo = files.photo && await savePhoto(files.photo, { userId: req.user.id, kind: 'cover' });
     const back = files.back && await savePhoto(files.back, { userId: req.user.id, kind: 'back' });
-    const item = await one('INSERT INTO my_books(user_id, book_id, photo_id, back_photo_id) VALUES ($1, $2, $3, $4) RETURNING id',
-      [req.user.id, book.id, photo?.id ?? null, back?.id ?? null]);
+    const { owner, friendName } = ownerOf(fields);
+    const item = await one('INSERT INTO my_books(user_id, book_id, photo_id, back_photo_id, owner, friend_name) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [req.user.id, book.id, photo?.id ?? null, back?.id ?? null, owner, friendName]);
     return { item, book, missing: await missingParts(book) };
   });
 
@@ -64,7 +75,7 @@ export default async function myBookRoutes(app) {
     const ready = await Promise.race([bookDetails(book), new Promise((r) => setTimeout(r, 5000, null))]);
     if (ready) book = ready;
     return {
-      item: { id: m.id, created_at: m.created_at, placed_at: m.placed_at, code: m.code, location_name: m.location_name },
+      item: { id: m.id, created_at: m.created_at, placed_at: m.placed_at, code: m.code, location_name: m.location_name, owner: m.owner, friend_name: m.friend_name },
       book: {
         id: book.id, isbn13: book.isbn13, title: book.title, authors: book.authors, year: book.year, publisher: book.publisher,
         cover_url: book.cover_url, front_url: book.front_url, back_url: book.back_url,

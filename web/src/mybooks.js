@@ -35,3 +35,10 @@ export async function placeBook(item, code = null) {
     return null;
   }
 }
+
+// "📗 Dan's book (at his home)" / "🤝 Borrowed from Dan".
+export function ownerLabel(r) {
+  if (r.owner === 'mine') return '';
+  const who = r.friend_name ? esc(r.friend_name) : t('owner.a_friend');
+  return t(r.owner === 'borrowed' ? 'owner.label_borrowed' : 'owner.label_friend', { who });
+}

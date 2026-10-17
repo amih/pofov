@@ -4,6 +4,7 @@ import sharp from 'sharp';
 import exifr from 'exifr';
 import { config } from './config.js';
 import { one } from './db.js';
+import { cropPhotoLater } from './covers.js';
 
 const MAX_SIDE = 1600;
 const THUMB_SIDE = 400;
@@ -34,13 +35,16 @@ export async function savePhoto(buffer, { userId, kind }) {
     .webp({ quality: 70 })
     .toFile(join(config.uploadDir, thumbRel));
 
-  return one(
+  const row = await one(
     `INSERT INTO photos(id, user_id, kind, path, thumb_path, width, height, exif_geom)
      VALUES ($1, $2, $3, $4, $5, $6, $7,
              CASE WHEN $8::float8 IS NULL THEN NULL ELSE ST_MakePoint($9, $8)::geography END)
      RETURNING id, path, thumb_path`,
     [id, userId, kind, rel, thumbRel, info.width, info.height, gps?.latitude ?? null, gps?.longitude ?? null],
   );
+  // A book's cover: cut out of the background and straightened, in the background.
+  if (kind === 'cover' || kind === 'back') cropPhotoLater(row.id, buffer);
+  return row;
 }
 
 export const photoUrls = (p) => p && { url: `/uploads/${p.path}`, thumb: `/uploads/${p.thumb_path}` };

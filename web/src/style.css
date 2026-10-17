@@ -332,3 +332,11 @@ button.big-btn { font: inherit; text-align: start; width: 100%; }
 .yesno legend { font-weight: 700; padding: 0 4px; }
 .yesno input { width: auto; flex: none; margin: 0; }
 .yesno label.check { padding: 6px 0; }
+.owner { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px 10px; margin: 10px 0; }
+.owner legend { font-weight: 700; padding: 0 4px; }
+.owner .seg { flex-wrap: wrap; }
+.owner label { display: grid; gap: 4px; margin-top: 8px; }
+
+/* Android draws its buttons (back / home / recent) over the bottom of the app, in white:
+   a strip in the app's colour behind them keeps them visible. */
+body::after { content: ''; position: fixed; z-index: 3000; left: 0; right: 0; bottom: 0; height: env(safe-area-inset-bottom); background: var(--wood); pointer-events: none; }

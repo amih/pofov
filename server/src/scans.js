@@ -9,10 +9,12 @@ import { requireUser } from './auth.js';
 import { lookupIsbn, lookupTitle, findOrCreateBook } from './books.js';
 import { readBooks, readCover, readIsbnBarcodes, normTitle } from './vision.js';
 import { pickFrames } from './frames.js';
+import { cropCover } from './covers.js';
 import { locationByCode, visibleTo, distanceTo, splitAuthors } from './locations.js';
 import { initialStatus, award, pointsForSighting } from './moderation.js';
 import { parseLatLon, normalizeIsbn, normalizeDanacode } from './util.js';
 import { mergeDuplicates } from './approvals.js';
+import { ownerOf } from './mybooks.js';
 import { sendMail } from './mail.js';
 
 // Raw uploads (may carry GPS in EXIF) live outside the public uploads folder and
@@ -115,9 +117,10 @@ export default async function scanRoutes(app) {
     const distance = loc ? await distanceTo(loc.id, parseLatLon(fields.lat, fields.lon)) : null;
     const bookCode = normalizeIsbn(fields.isbn) ?? normalizeDanacode(fields.isbn);
     await q(
-      `INSERT INTO scans(id, location_id, user_id, kind, media, distance_m, lang, source, book_code) VALUES ($1, $2, $3, $4, $5, $6, $7, 'cover', $8)`,
+      `INSERT INTO scans(id, location_id, user_id, kind, media, distance_m, lang, source, book_code, owner, friend_name)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'cover', $8, $9, $10)`,
       [id, loc?.id ?? null, req.user.id, fields.kind === 'added' ? 'added' : 'seen', JSON.stringify(media.sort((a, b) => a.path.localeCompare(b.path))),
-        distance, fields.lang === 'en' ? 'en' : 'he', bookCode],
+        distance, fields.lang === 'en' ? 'en' : 'he', bookCode, ...(loc ? [null, null] : Object.values(ownerOf(fields)))],
     );
     wake();
     return { scan: { id, status: 'queued' } };
@@ -331,7 +334,10 @@ async function saveCropThumb(jpeg, scanId, n) {
 async function processCover(scan) {
   const dir = join(MEDIA_DIR, scan.id);
   await setProgress(scan.id, { step: 'reading', done: 0, total: 1 });
-  const [front, back = null] = await Promise.all(scan.media.map((m) => readFile(join(dir, m.path))));
+  let [front, back = null] = await Promise.all(scan.media.map((m) => readFile(join(dir, m.path))));
+  // Cut out and straightened first: tidier pictures, and a clearer read.
+  front = await cropCover(front).catch(() => null) ?? front;
+  if (back) back = await cropCover(back).catch(() => null) ?? back;
   const frame = await saveFrameThumb(front, scan.id, 0);
   const backPath = back && await saveFrameThumb(back, scan.id, 1);
   for (const [i, b] of [front, back].entries()) if (b) await keepCopy(b, scan.id, i).catch((err) => log.warn({ err, scan: scan.id }, 'keep copy failed'));

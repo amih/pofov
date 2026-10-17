@@ -2,6 +2,7 @@ import { api, getMe } from '../api.js';
 import { navigate } from '../nav.js';
 import { esc, toast } from '../ui.js';
 import { t } from '../i18n.js';
+import { ownerLabel } from '../mybooks.js';
 
 // Books waiting for the reader's approval, from all their photos, videos and barcodes:
 // one at a time, with a large picture. Approve, decline, or set aside for later.
@@ -68,7 +69,7 @@ export default async function queueView(root) {
     <section class="page approve">
       <h1>${t('queue.title')}</h1>
       <div id="qhead">${header()}</div>
-      <p class="muted small">${(i.sources?.length ? i.sources : [i.source]).map((x) => esc(t(`queue.from_${x}`))).join(' + ')} · ${i.code ? `<a href="/l/${i.code}">${esc(i.location_name || t('free_library'))}</a>` : `<a href="/books">${t('queue.my_books')}</a>`}${i.decision === 'later' ? ` · ${t('queue.was_later')}` : ''}</p>
+      <p class="muted small">${(i.sources?.length ? i.sources : [i.source]).map((x) => esc(t(`queue.from_${x}`))).join(' + ')} · ${i.code ? `<a href="/l/${i.code}">${esc(i.location_name || t('free_library'))}</a>` : `<a href="/books">${t('queue.my_books')}</a>${i.owner && i.owner !== 'mine' ? ` · ${ownerLabel(i)}` : ''}`}${i.decision === 'later' ? ` · ${t('queue.was_later')}` : ''}</p>
       ${big ? `<a href="${esc(i.frame || big)}" target="_blank" class="big-pic ${i.crop ? 'crop' : ''}"><img src="${esc(big)}" alt="${t('scan.photo_of')}"></a>` : ''}
       <div class="approve-book">
         ${i.cover_url && big !== i.cover_url ? `<img class="cover" src="${esc(i.cover_url)}" alt="">` : ''}

@@ -21,16 +21,17 @@ export function bookShots({ on, panel, onBook, onStart, onEnd }) {
     panel.querySelector('.shot-say').innerHTML = side === 'front'
       ? `<b>${t('shots.front_now')}</b><br><span class="muted small">${t('shots.front_how')}</span>`
       : `<b>${t('shots.now_back')}</b><br><span class="muted small">${t('shots.back_why')}</span>`;
-    panel.querySelector('[data-shots="skip"]').hidden = side !== 'back' || session.backOnly;
+    panel.querySelector('[data-shots="skip"]').hidden = side !== 'back' || !!session.only;
   };
   const thumb = (blob) => `<img class="shot-thumb" src="${esc(URL.createObjectURL(blob))}" alt="">`;
 
-  async function start({ isbn = null, intro = null, single = false, backOnly = false, onBook: own = null } = {}) {
+  // only: 'front' or 'back' = one picture of that side (a new or missing one).
+  async function start({ isbn = null, intro = null, single = false, only = null, onBook: own = null } = {}) {
     stopCamera();
     preset = isbn;
-    session = { intro, single: single || backOnly, backOnly, onBook: own };
+    session = { intro, single: single || !!only, only, onBook: own };
     refresh = say;
-    side = backOnly ? 'back' : 'front';
+    side = only ?? 'front';
     prev = null; steady = 0; moved = true; best = 0;
     front = null;
     panel.hidden = false;
@@ -102,8 +103,10 @@ export function bookShots({ on, panel, onBook, onStart, onEnd }) {
   }
 
   function took(blob) {
-    if (side === 'front') { front = blob; side = 'back'; } else { save(front, blob); front = null; side = session.backOnly ? 'back' : 'front'; }
-    if ((side === 'front' || session.backOnly) && session.single) return stop();
+    if (session.only === 'front') { save(blob, null); return stop(); }
+    if (session.only === 'back') { save(null, blob); return stop(); }
+    if (side === 'front') { front = blob; side = 'back'; } else { save(front, blob); front = null; side = 'front'; }
+    if (side === 'front' && session.single) return stop();
     refresh();
   }
 
@@ -169,8 +172,8 @@ export function bookShots({ on, panel, onBook, onStart, onEnd }) {
 
 // A book no catalogue knows (or with no barcode read): its covers go to the server,
 // which reads them; the book then waits in the approval queue.
-export async function sendCovers({ code = null, kind = 'seen', pos = null, isbn = null, front, back }) {
-  const fields = { code, kind, isbn, lang: lang(), lat: pos?.lat ?? '', lon: pos?.lon ?? '' };
+export async function sendCovers({ code = null, kind = 'seen', pos = null, isbn = null, front, back, owner = null, friend_name: friend = null }) {
+  const fields = { code, kind, isbn, owner, friend_name: friend, lang: lang(), lat: pos?.lat ?? '', lon: pos?.lon ?? '' };
   const files = { photo: front, back };
   try {
     if (!navigator.onLine) throw new TypeError('offline');

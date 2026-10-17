@@ -5,7 +5,7 @@ import { t } from '../i18n.js';
 import { watchDialog } from '../watch.js';
 import { pagerHtml, attachPager, loadBook } from '../pager.js';
 import { bookShots } from '../shots.js';
-import { placeBook } from '../mybooks.js';
+import { placeBook, ownerLabel } from '../mybooks.js';
 
 // One book at one library: large pictures (photos taken at the shelf, the front and
 // back covers found online), the back-cover text, and whether it is still there.
@@ -23,16 +23,17 @@ export default async function bookView(root, [code, id], _q, fresh = false) {
   const present = here?.present;
   return renderBook(root, {
     b, photos, again: () => bookView(root, [code, id], null, true),
-    // Back cover missing: whoever stands at the library can photograph it.
-    addBack: async () => {
+    // Whoever stands at the library (the book in hand) can photograph its covers.
+    photoSaver: async () => {
       const p = await getPosition({ timeout: 8000 }).catch(() => null);
       if (!p || distanceM(p, l) > NEAR_M) return null;
-      return async ({ back }) => {
+      return async ({ front, back }) => {
         const fd = new FormData();
-        fd.append('back', back, 'back.jpg');
+        if (front) fd.append('photo', front, 'photo.jpg');
+        if (back) fd.append('back', back, 'back.jpg');
         fd.append('lat', p.lat); fd.append('lon', p.lon);
         const r = await api(`/api/locations/${code}/books/${id}/photos`, { method: 'POST', form: fd });
-        toast(t(r.sighting.status === 'approved' ? 'shots.thanks' : 'loc.thanks_review'));
+        if (r.sighting.status !== 'approved') toast(t('loc.thanks_review'));
       };
     },
     back: `<a href="/l/${code}">${t('back.to', { name: esc(l.name || t('free_library')) })}</a>`,
@@ -54,16 +55,17 @@ export async function myBookView(root, [id], _q, fresh = false) {
   const { item, book: b, photos } = data;
   return renderBook(root, {
     b, photos, again: () => myBookView(root, [id], null, true),
-    addBack: async () => async ({ back }) => {
+    photoSaver: async () => async ({ front, back }) => {
       const fd = new FormData();
-      fd.append('back', back, 'back.jpg');
+      if (front) fd.append('photo', front, 'photo.jpg');
+      if (back) fd.append('back', back, 'back.jpg');
       await api(`/api/my-books/${item.id}/photos`, { method: 'POST', form: fd });
       toast(t('shots.thanks'));
     },
     back: `<a href="/books">${t('mybooks.back')}</a>`,
     status: item.placed_at ? `<p class="ok">📍 <a href="/l/${item.code}">${esc(item.location_name || t('free_library'))}</a> · ${timeAgo(item.placed_at)}</p>`
-      : `<p class="muted">${t('mybooks.home')}</p>`,
-    actions: item.placed_at ? '' : `<p class="row"><button class="btn primary" id="place">📍 ${t('mybooks.left_it')}</button>
+      : `<p class="muted">${item.owner === 'mine' ? t('mybooks.home') : ownerLabel(item)}</p>`,
+    actions: item.placed_at ? '' : `<p class="row">${item.owner === 'mine' ? `<button class="btn primary" id="place">📍 ${t('mybooks.left_it')}</button>` : ''}
       <button class="btn" id="remove">✕ ${t('mybooks.remove')}</button></p>`,
     wire: (el) => {
       const p = el.querySelector('#place');
@@ -84,7 +86,7 @@ const distanceM = (a, b) => {
   return Math.hypot(x, y) * R;
 };
 
-function renderBook(root, { b, photos, again, back, status, actions, wire, addBack }) {
+function renderBook(root, { b, photos, again, back, status, actions, wire, photoSaver }) {
   root._bookCleanup?.(); // the page re-renders when the details arrive
   // Covers and the back-cover text are still being looked up: show this, then look again.
   const path = location.pathname;
@@ -121,8 +123,10 @@ function renderBook(root, { b, photos, again, back, status, actions, wire, addBa
     ${b.description ? `<h2>${t('book.blurb')}</h2><p class="desc blurb" dir="auto">${esc(b.description)}</p>`
       : b.details_pending ? `<p class="progress-line small"><span class="spinner"></span> ${t('book.looking')}</p>` : `<p class="muted small">${t('book.no_blurb')}</p>`}
     ${actions}
-    <div class="add-back" hidden><p class="note">${t('book.no_back')}</p>
-      <p><button class="btn primary" data-add-back>📷 ${t('shots.back')}</button></p></div>
+    <div class="add-photos" hidden>
+      ${!b.back_url && !latest('back') ? `<p class="note">${t('book.no_back')}</p>` : ''}
+      <p class="row"><button class="btn ${!b.back_url && !latest('back') ? '' : 'small'}" data-new="front">📷 ${t('book.new_front')}</button>
+        <button class="btn ${!b.back_url && !latest('back') ? 'primary' : 'small'}" data-new="back">📷 ${t('book.new_back')}</button></p></div>
     <div class="shots" id="shots" hidden></div>
     ${b.isbn13 ? `<p class="muted small" dir="ltr">ISBN ${esc(b.isbn13)}</p>` : ''}
     ${b.details_source ? `<p class="muted small">${t('book.source', { src: esc(b.details_source) })}</p>` : ''}
@@ -133,19 +137,24 @@ function renderBook(root, { b, photos, again, back, status, actions, wire, addBa
     const btn = e.target.closest('[data-i]');
     if (btn) viewer(pics, Number(btn.dataset.i));
   });
-  // No back cover anywhere: the reader holding the book can add it.
+  // The reader holding the book can photograph a cover that is missing, or a better
+  // one than what is shown (cut out and straightened on the server).
   let shots = null;
-  if (!b.back_url && !latest('back') && addBack && !b.details_pending) {
-    addBack().then((save) => {
+  if (photoSaver && !b.details_pending) {
+    photoSaver().then((save) => {
       if (!save || location.pathname !== path) return;
-      const box = root.querySelector('.add-back');
+      const box = root.querySelector('.add-photos');
       box.hidden = false;
-      shots = bookShots({ on: root, panel: root.querySelector('#shots'), onBook: async ({ back }) => {
-        await save({ back });
+      shots = bookShots({ on: root, panel: root.querySelector('#shots'), onBook: async ({ front, back }) => {
+        await save({ front, back });
+        toast(t('book.photo_saved'));
         again();
         return '';
       } });
-      box.querySelector('[data-add-back]').onclick = () => { box.hidden = true; shots.start({ backOnly: true }); };
+      box.onclick = (e) => {
+        const btn = e.target.closest('[data-new]');
+        if (btn) { box.hidden = true; shots.start({ only: btn.dataset.new }); }
+      };
     });
   }
   const unpage = attachPager(root);

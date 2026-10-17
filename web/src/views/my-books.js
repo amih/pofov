@@ -4,7 +4,7 @@ import { navigate } from '../nav.js';
 import { startScanner } from '../scanner.js';
 import { esc, shrinkImage, timeAgo, toast, confirmDialog } from '../ui.js';
 import { t } from '../i18n.js';
-import { placeBook } from '../mybooks.js';
+import { placeBook, ownerLabel } from '../mybooks.js';
 import { bookShots, sendCovers } from '../shots.js';
 import { chime } from '../sound.js';
 import { rememberList } from '../pager.js';
@@ -18,6 +18,10 @@ export default async function myBooksView(root) {
   <section class="page">
     <h1>${t('mybooks.title')}</h1>
     <p class="muted">${t('mybooks.lead')}</p>
+    <fieldset class="owner"><legend>${t('owner.q')}</legend>
+      <div class="seg" id="owner"><button type="button" data-o="mine">${t('owner.mine')}</button><button type="button" data-o="friend">${t('owner.friend')}</button><button type="button" data-o="borrowed">${t('owner.borrowed')}</button></div>
+      <label class="small" id="friend-row" hidden>${t('owner.name')} <input name="friend" maxlength="80" dir="auto" placeholder="${t('owner.name_ph')}"></label>
+    </fieldset>
     <div class="scanner live" hidden><video muted playsinline></video><div class="frame"></div></div>
     <p class="row">
       <button class="btn primary" id="cam">${t('mybooks.scan')}</button>
@@ -43,6 +47,25 @@ export default async function myBooksView(root) {
   </section>`;
 
   const $ = (s) => root.querySelector(s);
+
+  // Whose books are being scanned now: kept for this visit (and the next, in this tab).
+  let owner = sessionStorage.getItem('seferehov:owner') || 'mine';
+  const friendInput = root.querySelector('[name=friend]');
+  friendInput.value = sessionStorage.getItem('seferehov:friend') || '';
+  const showOwner = () => {
+    root.querySelectorAll('#owner button').forEach((b) => b.classList.toggle('on', b.dataset.o === owner));
+    root.querySelector('#friend-row').hidden = owner === 'mine';
+  };
+  root.querySelector('#owner').onclick = (e) => {
+    const b = e.target.closest('[data-o]');
+    if (!b) return;
+    owner = b.dataset.o;
+    try { sessionStorage.setItem('seferehov:owner', owner); } catch { /* this visit only */ }
+    showOwner();
+  };
+  friendInput.oninput = () => { try { sessionStorage.setItem('seferehov:friend', friendInput.value); } catch { /* this visit only */ } };
+  const whose = () => (owner === 'mine' ? { owner } : { owner, friend_name: friendInput.value.trim() });
+  showOwner();
   const scanner = $('.scanner'), video = $('video'), decoded = $('#decoded'), result = $('#result'), noisbn = $('#noisbn');
   const say = (text, isbn = false) => { decoded.hidden = false; decoded.textContent = text; decoded.classList.toggle('isbn', isbn); };
 
@@ -59,13 +82,19 @@ export default async function myBooksView(root) {
           <span class="row"><button class="btn small primary" data-place="${r.id}">📍 ${t('mybooks.left_it')}</button>
           <button class="btn small" data-del="${r.id}" aria-label="${esc(t('mybooks.remove'))}">✕</button></span></div></li>`).join('')}</ul>`
         : `<p class="muted small">${t('mybooks.empty')}</p>`}
+      ${d.friends.length ? `<h2>${t('owner.friends_title')} <span class="count">${d.friends.length}</span></h2>
+      <ul class="books">${d.friends.map((r) => `
+        <li data-id="${r.id}"><a href="/books/${r.id}" data-book>${cover(r)}</a><div class="meta">
+          <a class="title-link" href="/books/${r.id}" data-book><strong>${esc(r.title)}</strong></a><span class="muted">${esc((r.authors ?? []).join(', '))}</span>
+          <span class="small">${ownerLabel(r)}</span>
+          <span class="row"><button class="btn small" data-del="${r.id}" aria-label="${esc(t('mybooks.remove'))}">✕</button></span></div></li>`).join('')}</ul>` : ''}
       ${d.placed.length ? `<h2>${t('mybooks.placed_title')} <span class="count">${d.placed.length}</span></h2>
       <ul class="books">${d.placed.map((r) => `
         <li><a href="/books/${r.id}" data-book>${cover(r)}</a><div class="meta">
           <a class="title-link" href="/books/${r.id}" data-book><strong>${esc(r.title)}</strong></a>
           <span class="muted">${esc((r.authors ?? []).join(', '))}</span>
           <span class="small">📍 <a href="/l/${r.code}">${esc(r.location_name || t('free_library'))}</a> · ${timeAgo(r.placed_at)}${r.sighting_status === 'pending' ? ` · ${t('mybooks.pending')}` : ''}</span></div></li>`).join('')}</ul>` : ''}`;
-    homeRows = d.home;
+    homeRows = [...d.home, ...d.friends];
   }
   let homeRows = [];
   $('#lists').addEventListener('click', async (e) => {
@@ -83,6 +112,7 @@ export default async function myBooksView(root) {
 
   // Adds one book: by ISBN, or by title (with the ISBN when no catalogue knew it).
   async function add(fields, photo = null) {
+    fields = { ...whose(), ...fields };
     try {
       if (!navigator.onLine) throw new TypeError('offline');
       const fd = new FormData();
@@ -123,7 +153,7 @@ export default async function myBooksView(root) {
         result.innerHTML = '';
         chime('missing');
         shoot({ isbn: e.body.isbn, intro: t('shots.contribute'), onBook: async ({ front, back, isbn }) => {
-          const line = await sendCovers({ isbn, front, back });
+          const line = await sendCovers({ isbn, front, back, ...whose() });
           result.innerHTML = `<p>${line} ${t('shots.thanks')}</p>`;
           noisbn.reset();
           return line;
@@ -171,6 +201,7 @@ export default async function myBooksView(root) {
     if (isbn && navigator.onLine) {
       const fd = new FormData();
       fd.append('isbn', isbn);
+      Object.entries(whose()).forEach(([k, v]) => fd.append(k, v));
       fd.append('photo', front, 'photo.jpg');
       if (back) fd.append('back', back, 'back.jpg');
       try {
@@ -181,7 +212,7 @@ export default async function myBooksView(root) {
         if (e.body?.error !== 'book_not_found' && !(e instanceof TypeError)) throw e;
       }
     }
-    return sendCovers({ isbn, front, back });
+    return sendCovers({ isbn, front, back, ...whose() });
   } });
   $('#manual').onsubmit = (e) => {
     e.preventDefault();
