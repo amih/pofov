@@ -1,7 +1,7 @@
 import { api, getMe } from '../api.js';
 import { esc, getPosition, timeAgo, toast, avatarHtml, noStringsNote } from '../ui.js';
 import { t, lang } from '../i18n.js';
-import { watchDialog } from '../watch.js';
+import { rememberList } from '../pager.js';
 
 export default async function locationView(root, [code]) {
   root.innerHTML = `<section class="page"><p class="muted">${t('loading')}</p></section>`;
@@ -44,9 +44,9 @@ export default async function locationView(root, [code]) {
     <ul class="books">
       ${books.map((b) => `
         <li data-id="${b.id}">
-          <a href="/l/${l.code}/b/${b.id}" class="cover-link">${b.cover_url ? `<img src="${esc(b.cover_url)}" alt="" loading="lazy">` : '<div class="nocover">📖</div>'}</a>
+          <a href="/l/${l.code}/b/${b.id}" class="cover-link" data-book>${b.cover_url ? `<img src="${esc(b.cover_url)}" alt="" loading="lazy">` : '<div class="nocover">📖</div>'}</a>
           <div class="meta">
-            <a href="/l/${l.code}/b/${b.id}" class="title-link"><strong>${esc(b.title)}</strong></a>
+            <a href="/l/${l.code}/b/${b.id}" class="title-link" data-book><strong>${esc(b.title)}</strong></a>
             <span>${esc(b.authors.join(', '))}${b.year ? ` · ${b.year}` : ''}</span>
             <span class="muted">${t('loc.seen', { when: timeAgo(b.last_seen) })}</span>
             ${b.waiting?.others ? `<span class="waiting">👥 ${t('watch.waiting', { n: b.waiting.others, mine: b.waiting.mine })}</span>` : ''}
@@ -56,15 +56,14 @@ export default async function locationView(root, [code]) {
     </ul>
 
     ${taken.length ? `<h2>${t('loc.taken_title')} <span class="count">${taken.length}</span></h2>
-    <ul class="books taken">${taken.map((b, i) => `
+    <ul class="books taken">${taken.map((b) => `
         <li>
-          <a href="/l/${l.code}/b/${b.id}" class="cover-link">${b.cover_url ? `<img src="${esc(b.cover_url)}" alt="" loading="lazy">` : '<div class="nocover">📖</div>'}</a>
+          <a href="/l/${l.code}/b/${b.id}" class="cover-link" data-book>${b.cover_url ? `<img src="${esc(b.cover_url)}" alt="" loading="lazy">` : '<div class="nocover">📖</div>'}</a>
           <div class="meta">
-            <a href="/l/${l.code}/b/${b.id}" class="title-link"><strong>${esc(b.title)}</strong></a>
+            <a href="/l/${l.code}/b/${b.id}" class="title-link" data-book><strong>${esc(b.title)}</strong></a>
             <span>${esc(b.authors.join(', '))}${b.year ? ` · ${b.year}` : ''}</span>
             <span class="muted">${t(b.kind === 'gone' ? 'loc.gone_when' : 'loc.taken_when', { when: timeAgo(b.taken_at) })}</span>
             ${b.waiting?.others ? `<span class="waiting">👥 ${t('watch.waiting', { n: b.waiting.others, mine: b.waiting.mine })}</span>` : ''}
-            <span class="row"><button class="link" data-watch="${i}">${t(b.waiting?.mine ? 'watch.on' : 'watch.button')}</button></span>
           </div>
         </li>`).join('')}</ul>` : ''}
 
@@ -89,11 +88,7 @@ export default async function locationView(root, [code]) {
     }
   };
 
-  const takenList = root.querySelector('.books.taken');
-  if (takenList) takenList.onclick = (e) => {
-    const b = e.target.closest('[data-watch]');
-    if (b) watchDialog({ book: taken[Number(b.dataset.watch)], code: l.code });
-  };
+  rememberList(root);
 
   root.querySelector('.books').onclick = async (e) => {
     const btn = e.target.closest('button[data-kind]');

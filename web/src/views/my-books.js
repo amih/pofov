@@ -6,6 +6,8 @@ import { esc, shrinkImage, timeAgo, toast } from '../ui.js';
 import { t } from '../i18n.js';
 import { placeBook } from '../mybooks.js';
 import { bookShots, sendCovers } from '../shots.js';
+import { chime } from '../sound.js';
+import { rememberList } from '../pager.js';
 
 // The reader's own books, scanned at home. Later, "I left it in a library" reports it there.
 export default async function myBooksView(root) {
@@ -52,15 +54,15 @@ export default async function myBooksView(root) {
     $('#lists').innerHTML = `
       <h2>${t('mybooks.home')} <span class="count">${d.home.length}</span></h2>
       ${d.home.length ? `<ul class="books">${d.home.map((r) => `
-        <li data-id="${r.id}">${cover(r)}<div class="meta">
-          <strong>${esc(r.title)}</strong><span class="muted">${esc((r.authors ?? []).join(', '))}</span>
+        <li data-id="${r.id}"><a href="/books/${r.id}" data-book>${cover(r)}</a><div class="meta">
+          <a class="title-link" href="/books/${r.id}" data-book><strong>${esc(r.title)}</strong></a><span class="muted">${esc((r.authors ?? []).join(', '))}</span>
           <span class="row"><button class="btn small primary" data-place="${r.id}">📍 ${t('mybooks.left_it')}</button>
           <button class="btn small" data-del="${r.id}" aria-label="${esc(t('mybooks.remove'))}">✕</button></span></div></li>`).join('')}</ul>`
         : `<p class="muted small">${t('mybooks.empty')}</p>`}
       ${d.placed.length ? `<h2>${t('mybooks.placed_title')} <span class="count">${d.placed.length}</span></h2>
       <ul class="books">${d.placed.map((r) => `
-        <li>${cover(r)}<div class="meta">
-          <a class="title-link" href="/l/${r.code}/b/${r.book_id}"><strong>${esc(r.title)}</strong></a>
+        <li><a href="/books/${r.id}" data-book>${cover(r)}</a><div class="meta">
+          <a class="title-link" href="/books/${r.id}" data-book><strong>${esc(r.title)}</strong></a>
           <span class="muted">${esc((r.authors ?? []).join(', '))}</span>
           <span class="small">📍 <a href="/l/${r.code}">${esc(r.location_name || t('free_library'))}</a> · ${timeAgo(r.placed_at)}${r.sighting_status === 'pending' ? ` · ${t('mybooks.pending')}` : ''}</span></div></li>`).join('')}</ul>` : ''}`;
     homeRows = d.home;
@@ -88,7 +90,21 @@ export default async function myBooksView(root) {
       result.innerHTML = `<div class="card book-card">
         ${r.book.cover_url ? `<img src="${esc(r.book.cover_url)}" alt="">` : '<div class="nocover">📖</div>'}
         <div><strong>${esc(r.book.title)}</strong><br><span class="muted">${esc((r.book.authors ?? []).join(', '))}</span><br>
-        <span class="ok">✓ ${t(r.already ? 'mybooks.already' : 'mybooks.added')}</span></div></div>`;
+        <span class="ok">✓ ${t(r.already ? 'mybooks.already' : 'mybooks.added')}</span></div></div>
+        ${r.missing?.length ? `<p class="note">${t(`shots.partial_${r.missing.join('_')}`)}</p>
+          <p><button class="btn primary" id="shoot-missing">📷 ${t('shots.add_missing')}</button></p>` : ''}`;
+      if (fields.isbn) chime(r.missing?.length ? 'partial' : 'found');
+      // Found, but no pictures of its covers anywhere: the reader may add them.
+      const more = $('#shoot-missing');
+      if (more) more.onclick = () => shoot({ intro: t(`shots.partial_${r.missing.join('_')}`), onBook: async ({ front, back }) => {
+        const fd = new FormData();
+        fd.append('photo', front, 'photo.jpg');
+        if (back) fd.append('back', back, 'back.jpg');
+        await api(`/api/my-books/${r.item.id}/photos`, { method: 'POST', form: fd });
+        showLists();
+        result.innerHTML = `<p class="ok">✓ ${t('shots.thanks')}</p>`;
+        return '';
+      } });
       showLists();
       return true;
     } catch (e) {
@@ -98,13 +114,19 @@ export default async function myBooksView(root) {
         return true;
       }
       if (e.body?.error === 'book_not_found') {
-        // No catalogue knows this ISBN: ask for the title, keep the ISBN.
+        // Not in any catalogue: straight to the camera, the reader completes the record
+        // (or types the title below).
         noisbn.isbn.value = e.body.isbn;
         root.querySelector('.nobarcode').open = true;
-        result.innerHTML = `<p class="note">${t('shots.unknown', { isbn: esc(e.body.isbn) })}</p>
-          <p><button class="btn primary" id="shoot-unknown">📷 ${t('shots.start')}</button></p>`;
-        $('#shoot-unknown').onclick = () => { stopScanner(); shots.start({ isbn: e.body.isbn }); };
-        noisbn.title.focus();
+        result.innerHTML = '';
+        chime('missing');
+        shoot({ isbn: e.body.isbn, intro: t('shots.contribute'), onBook: async ({ front, back, isbn }) => {
+          const line = await sendCovers({ isbn, front, back });
+          result.innerHTML = `<p>${line} ${t('shots.thanks')}</p>`;
+          noisbn.reset();
+          return line;
+        } });
+        return true; // handled: the same barcode is not asked about again
       } else result.innerHTML = `<p class="note">${e.body?.error === 'invalid_isbn' ? t('addbook.invalid') : esc(e.message)}</p>`;
       return false;
     }
@@ -119,11 +141,11 @@ export default async function myBooksView(root) {
     if (!await add({ isbn })) seen.delete(isbn);
   }
 
-  let stop = null;
+  let stop = null, resume = false, left = false;
   const stopScanner = () => { stop?.(); stop = null; scanner.hidden = true; $('#cam').textContent = t('mybooks.scan'); };
-  $('#cam').onclick = async () => {
-    if (stop) return stopScanner();
-    shots.stop();
+  // One book's covers in the middle of scanning: then back to the barcode scanner.
+  const shoot = (opts) => { resume = !!stop; stopScanner(); shots.start({ single: true, ...opts }); };
+  async function startScanning() {
     scanner.hidden = false;
     try {
       stop = await startScanner(video, handleIsbn);
@@ -133,15 +155,22 @@ export default async function myBooksView(root) {
       scanner.hidden = true;
       toast(t(err.name === 'NotAllowedError' ? 'cam.denied' : 'cam.fail'));
     }
+  }
+  $('#cam').onclick = () => {
+    if (stop) return stopScanner();
+    shots.stop();
+    startScanning();
   };
 
   // Front and back photos of one book: a known barcode adds it now; anything else is
   // read from the covers on the server and waits in the queue.
-  const shots = bookShots({ on: root, panel: $('#shots'), onStart: () => stopScanner(), onBook: async ({ front, back, isbn }) => {
+  const shots = bookShots({ on: root, panel: $('#shots'), onStart: () => { resume = false; stopScanner(); },
+    onEnd: () => { if (resume && !left) { resume = false; startScanning(); } }, onBook: async ({ front, back, isbn }) => {
     if (isbn && navigator.onLine) {
       const fd = new FormData();
       fd.append('isbn', isbn);
       fd.append('photo', front, 'photo.jpg');
+      if (back) fd.append('back', back, 'back.jpg');
       try {
         const r = await api('/api/my-books', { method: 'POST', form: fd });
         showLists();
@@ -165,6 +194,7 @@ export default async function myBooksView(root) {
     if (ok) noisbn.reset();
   };
 
+  rememberList(root);
   showLists();
-  return () => { stop?.(); shots.stop(); };
+  return () => { left = true; stop?.(); shots.stop(); };
 }

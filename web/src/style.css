@@ -316,3 +316,15 @@ button.big-btn { font: inherit; text-align: start; width: 100%; }
 .shot-done li { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
 .shot-done .shot-thumb { width: 40px; height: 54px; }
 .approve .back-pic img { max-height: 30vh; }
+.shot-intro { background: var(--card); border: 2px solid var(--green); border-radius: var(--radius); padding: 10px 12px; margin: 0 0 10px; font-weight: 600; }
+.dup-pair { border-bottom: 1px solid var(--line); padding: 12px 0; }
+.dup-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dup-book { display: flex; flex-direction: column; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; min-width: 0; overflow-wrap: anywhere; }
+.dup-book img, .dup-book .nocover { width: 64px; height: 90px; object-fit: cover; border-radius: 4px; display: flex; align-items: center; justify-content: center; background: var(--line); font-size: 1.8rem; }
+.pager { display: flex; justify-content: space-between; align-items: center; margin: 4px 0 10px; }
+.pager button[disabled] { visibility: hidden; }
+.wiz-steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0 0 14px; counter-reset: wiz; }
+.wiz-steps li { flex: 1; text-align: center; font-size: .85rem; color: var(--muted); border-bottom: 3px solid var(--line); padding-bottom: 4px; counter-increment: wiz; }
+.wiz-steps li::before { content: counter(wiz) ". "; }
+.wiz-steps li.on { color: var(--ink); font-weight: 700; border-color: var(--wood-light); }
+.wiz-steps li.done { border-color: var(--green); }

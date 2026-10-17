@@ -7,6 +7,7 @@ import { savePhoto, photoUrls } from './photos.js';
 import { readForm } from './multipart.js';
 import { locationByCode, visibleTo, distanceTo, splitAuthors, recordSighting } from './locations.js';
 import { parseLatLon } from './util.js';
+import { bookDetails, missingParts } from './details.js';
 
 const LIST_SQL = `
   SELECT m.id, m.created_at, m.placed_at, b.id AS book_id, b.isbn13, b.title, b.authors, b.year,
@@ -42,12 +43,50 @@ export default async function myBookRoutes(app) {
     }
     if (!book) return reply.code(422).send({ error: 'title_required' });
     const had = await one('SELECT id FROM my_books WHERE user_id = $1 AND book_id = $2 AND placed_at IS NULL', [req.user.id, book.id]);
-    if (had && !fields.again) return { item: had, book, already: true };
+    if (had && !fields.again) return { item: had, book, already: true, missing: await missingParts(book) };
     const photo = files.photo && await savePhoto(files.photo, { userId: req.user.id, kind: 'cover' });
     const back = files.back && await savePhoto(files.back, { userId: req.user.id, kind: 'back' });
     const item = await one('INSERT INTO my_books(user_id, book_id, photo_id, back_photo_id) VALUES ($1, $2, $3, $4) RETURNING id',
       [req.user.id, book.id, photo?.id ?? null, back?.id ?? null]);
-    return { item, book };
+    return { item, book, missing: await missingParts(book) };
+  });
+
+  // One of the reader's books, for its own page: large pictures and the back-cover text.
+  app.get('/api/my-books/:id', { preHandler: requireUser() }, async (req, reply) => {
+    const m = await one(
+      `SELECT m.*, p.path AS front_path, pb.path AS back_path, l.code, l.name AS location_name
+         FROM my_books m LEFT JOIN photos p ON p.id = m.photo_id LEFT JOIN photos pb ON pb.id = m.back_photo_id
+         LEFT JOIN locations l ON l.id = m.location_id WHERE m.id = $1 AND m.user_id = $2`,
+      [Number(req.params.id), req.user.id],
+    );
+    if (!m) return reply.code(404).send({ error: 'not_found' });
+    let book = await one('SELECT * FROM books WHERE id = $1', [m.book_id]);
+    const ready = await Promise.race([bookDetails(book), new Promise((r) => setTimeout(r, 5000, null))]);
+    if (ready) book = ready;
+    return {
+      item: { id: m.id, created_at: m.created_at, placed_at: m.placed_at, code: m.code, location_name: m.location_name },
+      book: {
+        id: book.id, isbn13: book.isbn13, title: book.title, authors: book.authors, year: book.year, publisher: book.publisher,
+        cover_url: book.cover_url, front_url: book.front_url, back_url: book.back_url,
+        description: book.description, details_source: book.details_source, details_pending: !ready,
+      },
+      photos: [m.front_path && { url: `/uploads/${m.front_path}`, kind: 'cover', at: m.created_at },
+        m.back_path && { url: `/uploads/${m.back_path}`, kind: 'back', at: m.created_at }].filter(Boolean),
+    };
+  });
+
+  // Covers photographed later (the book was found, but without pictures).
+  app.post('/api/my-books/:id/photos', {
+    preHandler: requireUser(),
+    config: { rateLimit: { max: 120, timeWindow: '1 hour' } },
+  }, async (req, reply) => {
+    const m = await one('SELECT id FROM my_books WHERE id = $1 AND user_id = $2', [Number(req.params.id), req.user.id]);
+    if (!m) return reply.code(404).send({ error: 'not_found' });
+    const { files } = await readForm(req);
+    const photo = files.photo && await savePhoto(files.photo, { userId: req.user.id, kind: 'cover' });
+    const back = files.back && await savePhoto(files.back, { userId: req.user.id, kind: 'back' });
+    await q('UPDATE my_books SET photo_id = COALESCE($2, photo_id), back_photo_id = COALESCE($3, back_photo_id) WHERE id = $1', [m.id, photo?.id ?? null, back?.id ?? null]);
+    return { ok: true };
   });
 
   // "I left it in this library."

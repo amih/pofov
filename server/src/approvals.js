@@ -3,7 +3,8 @@
 import { config } from './config.js';
 import { one, many, q, tx } from './db.js';
 import { requireUser } from './auth.js';
-import { lookupIsbn, findOrCreateBook } from './books.js';
+import { lookupIsbn, findOrCreateBook, withCode } from './books.js';
+import { missingParts } from './details.js';
 import { locationByCode, visibleTo, distanceTo, splitAuthors } from './locations.js';
 import { initialStatus, award, pointsForSighting } from './moderation.js';
 import { parseLatLon } from './util.js';
@@ -43,7 +44,7 @@ export async function approveItem(item, scan, user, { title, author } = {}) {
   const edited = title != null || author != null;
   title = String(title ?? item.title).trim().slice(0, 300);
   author = String(author ?? item.author ?? '').trim().slice(0, 200);
-  const book = item.book_id && !edited
+  let book = item.book_id && !edited
     ? await one('SELECT * FROM books WHERE id = $1', [item.book_id])
     : title && await findOrCreateBook({
       title, authors: splitAuthors(author), source: item.via === 'barcode' ? 'user' : 'llm',
@@ -51,6 +52,9 @@ export async function approveItem(item, scan, user, { title, author } = {}) {
       danacode: item.via === 'barcode' && !item.book_id ? item.danacode : null,
     });
   if (!book) return null;
+  // The scanned code goes with the book, so the next scan of it finds the book here.
+  const code = scan.book_code || (scan.source === 'barcode' ? item.isbn13 || item.danacode : null);
+  if (code) book = await withCode(book, code);
   // Covers photographed by the reader: kept as the book's front and back photos.
   const covers = item.sources?.includes('cover');
   const photoId = covers ? await photoOf(item.frame_path, user.id, 'cover') : null;
@@ -205,6 +209,6 @@ export default async function approvalRoutes(app) {
     });
     await mergeDuplicates(req.user.id);
     const merged = (await one('SELECT decision FROM scan_items WHERE id = $1', [item.id])).decision === 'merged';
-    return { item, book, isbn: r.isbn ?? r.danacode, merged, ...(await counts(req.user.id)) };
+    return { item, book, isbn: r.isbn ?? r.danacode, merged, missing: book ? await missingParts(book) : [], ...(await counts(req.user.id)) };
   });
 }

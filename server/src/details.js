@@ -172,3 +172,16 @@ export async function bookDetails(book) {
   if (!inFlight.has(book.id)) inFlight.set(book.id, lookUp(book).finally(() => inFlight.delete(book.id)));
   return inFlight.get(book.id);
 }
+
+// What a found book still lacks that a reader can photograph: 'front' and/or 'back'.
+// Waits briefly for the first details lookup; covers readers took count too.
+export async function missingParts(book) {
+  const b = await Promise.race([bookDetails(book).catch(() => null), sleep(2500).then(() => null)]) ?? book;
+  const own = await one(
+    `SELECT bool_or(photo_id IS NOT NULL) AS front, bool_or(back_photo_id IS NOT NULL) AS back FROM (
+       SELECT photo_id, back_photo_id FROM sightings WHERE book_id = $1
+       UNION ALL SELECT photo_id, back_photo_id FROM my_books WHERE book_id = $1) x`,
+    [book.id],
+  );
+  return [!(b.front_url || b.cover_url || own?.front) && 'front', !(b.back_url || own?.back) && 'back'].filter(Boolean);
+}

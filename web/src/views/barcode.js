@@ -5,6 +5,7 @@ import { startScanner, scanImage } from '../scanner.js';
 import { esc, getPosition, toast } from '../ui.js';
 import { t, lang } from '../i18n.js';
 import { bookShots, sendCovers } from '../shots.js';
+import { chime } from '../sound.js';
 
 // Live barcode scanning, one book after another. Each barcode is looked up and put
 // in the approval queue; the camera keeps running for the next book.
@@ -73,10 +74,15 @@ export default async function barcodeView(root, [code], query) {
           <span class="muted">${esc(b?.authors?.join(', ') ?? (r.offline ? '' : t('bc.unknown')))}</span><br>
           <span class="ok">✓ ${t(r.offline ? 'bc.saved_offline' : r.merged ? 'bc.merged' : 'bc.queued')}</span></div>
       </div>
-      ${b || r.offline ? '' : `<p class="note">${t('shots.unknown', { isbn: esc(isbn) })}</p>
-        <p><button class="btn primary" id="shoot-unknown">📷 ${t('shots.start')}</button></p>`}`;
-    const shoot = result.querySelector('#shoot-unknown');
-    if (shoot) shoot.onclick = () => { stop?.(); stop = null; root.querySelector('.scanner').hidden = true; shots.start({ isbn }); };
+      ${b && r.missing?.length ? `<p class="note">${t(`shots.partial_${r.missing.join('_')}`)}</p>
+        <p><button class="btn primary" id="shoot-missing">📷 ${t('shots.add_missing')}</button></p>` : ''}`;
+    // Not in any catalogue: straight to the camera, the reader completes the record.
+    // Found: on to the next barcode (with an offer when its pictures are missing).
+    const shoot = (intro) => { stop?.(); stop = null; root.querySelector('.scanner').hidden = true; shots.start({ isbn, intro, single: true }); };
+    if (!b && !r.offline) { chime('missing'); shoot(t('shots.contribute')); }
+    else if (b) chime(r.missing?.length ? 'partial' : 'found');
+    const more = result.querySelector('#shoot-missing');
+    if (more) more.onclick = () => shoot(t(`shots.partial_${r.missing.join('_')}`));
     added.insertAdjacentHTML('afterbegin', `<li>${esc(b?.title ?? `ISBN ${isbn}`)}</li>`);
     root.querySelector('#n').textContent = done.size;
     if (r.open != null) root.querySelector('#to-queue').textContent = `📥 ${t('bc.to_queue')} (${r.open + r.later})`;
@@ -101,8 +107,7 @@ export default async function barcodeView(root, [code], query) {
     on: root, panel: root.querySelector('#shots'), onEnd: () => { if (left || stop) return; root.querySelector('.scanner').hidden = false; start(); },
     onBook: async ({ front, back, isbn }) => {
       const line = await sendCovers({ code, kind, pos, isbn, front, back });
-      result.innerHTML = `<p>${line}</p>`;
-      shots.stop();
+      result.innerHTML = `<p>${line} ${t('shots.thanks')}</p>`;
       return line;
     },
   });

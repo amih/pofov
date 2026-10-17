@@ -11,6 +11,7 @@ import { t, lang } from './i18n.js';
 // Without a live camera, the phone's camera app is used instead, one photo at a time.
 export function bookShots({ on, panel, onBook, onStart, onEnd }) {
   let stream = null, video = null, timer = null, side = 'front', front = null, preset = null, busy = false;
+  let session = {}; // this time only: { intro, single, onBook }
   const small = document.createElement('canvas');
   const ctx = small.getContext('2d', { willReadFrequently: true });
   let prev = null, steady = 0, moved = true, best = 0, since = 0;
@@ -24,13 +25,15 @@ export function bookShots({ on, panel, onBook, onStart, onEnd }) {
   };
   const thumb = (blob) => `<img class="shot-thumb" src="${esc(URL.createObjectURL(blob))}" alt="">`;
 
-  async function start({ isbn = null } = {}) {
+  async function start({ isbn = null, intro = null, single = false, onBook: own = null } = {}) {
+    stopCamera();
     preset = isbn;
+    session = { intro, single, onBook: own };
     refresh = say;
     side = 'front';
     front = null;
     panel.hidden = false;
-    panel.innerHTML = `
+    panel.innerHTML = `${intro ? `<p class="shot-intro">${intro}</p>` : ''}
       <div class="shot-live"><video muted playsinline></video><div class="shot-guide"></div><div class="shot-flash"></div>
         <div class="shot-meter"><i></i></div></div>
       <p class="shot-say"></p>
@@ -99,11 +102,13 @@ export function bookShots({ on, panel, onBook, onStart, onEnd }) {
 
   function took(blob) {
     if (side === 'front') { front = blob; side = 'back'; } else { save(front, blob); front = null; side = 'front'; }
+    if (side === 'front' && session.single) return stop();
     refresh();
   }
 
   // In the background, so the next book can be photographed meanwhile.
   async function save(f, b) {
+    const handle = session.onBook ?? onBook;
     const isbn = preset || (b && await scanImage(b).catch(() => null)) || await scanImage(f).catch(() => null);
     preset = null;
     const li = document.createElement('li');
@@ -111,7 +116,7 @@ export function bookShots({ on, panel, onBook, onStart, onEnd }) {
     panel.querySelector('.shot-done')?.prepend(li);
     let line;
     try {
-      line = await onBook({ front: await shrinkImage(f, 2400), back: b ? await shrinkImage(b, 2400) : null, isbn });
+      line = await handle({ front: await shrinkImage(f, 2400), back: b ? await shrinkImage(b, 2400) : null, isbn });
     } catch (err) { line = `⚠️ ${esc(err.message)}`; }
     li.lastElementChild.innerHTML = line;
   }
@@ -154,7 +159,7 @@ export function bookShots({ on, panel, onBook, onStart, onEnd }) {
     else if (act === 'skip' && front) {
       save(front, null);
       front = null; side = 'front'; moved = false; since = Date.now();
-      refresh();
+      if (session.single) stop(); else refresh();
     }
   });
   panel.hidden = true;

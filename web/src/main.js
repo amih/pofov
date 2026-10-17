@@ -17,13 +17,14 @@ import reviewView from './views/review.js';
 import aboutView from './views/about.js';
 import queueView from './views/queue.js';
 import barcodeView from './views/barcode.js';
-import bookView from './views/book.js';
+import bookView, { myBookView } from './views/book.js';
 import editLocationView from './views/edit-location.js';
 import pageView from './views/page.js';
 import { initMenu } from './menu.js';
 import './install.js';
 import searchView from './views/search.js';
 import myBooksView from './views/my-books.js';
+import duplicatesView from './views/duplicates.js';
 
 const routes = [
   [/^\/$/, mapView],
@@ -36,6 +37,8 @@ const routes = [
   [/^\/add$/, addLocationView],
   [/^\/search$/, searchView],
   [/^\/books$/, myBooksView],
+  [/^\/books\/(\d+)$/, myBookView],
+  [/^\/duplicates$/, duplicatesView],
   [/^\/login$/, loginView],
   [/^\/me$/, meView],
   [/^\/top$/, topView],

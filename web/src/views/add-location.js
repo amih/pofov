@@ -13,21 +13,34 @@ export default async function addLocationView(root) {
   root.innerHTML = `
   <section class="page">
     <h1>${t('addloc.title')}</h1>
-    <p class="muted">${t('addloc.lead')}</p>
+    <ol class="wiz-steps"><li data-s="0">${t('wiz.photo')}</li><li data-s="1">${t('wiz.name')}</li><li data-s="2">${t('wiz.place')}</li></ol>
     <form id="f" class="form">
-      <label class="photo-pick">
-        <input type="file" name="photo" accept="image/*" capture="environment" hidden>
-        <span id="photo-preview">${t('addloc.photo')}</span>
-      </label>
-      <div id="mini-map" class="mini-map"></div>
-      <p id="gps" class="muted small">${t('addloc.gps_wait')}</p>
-      <label>${t('addloc.name')} <span class="muted">${t('optional')}</span>
-        <input name="name" maxlength="120" placeholder="${t('addloc.name_ph')}"></label>
-      <label>${t('addloc.hint')}
-        <textarea name="description" maxlength="1000" rows="3" placeholder="${t('addloc.hint_ph')}"></textarea></label>
-      <p class="field-note">${t('privacy.hint')}</p>
-      <label class="check"><input type="checkbox" name="restricted"> ${t('addloc.restricted')}</label>
-      <button class="btn primary big" type="submit">${t('addloc.submit')}</button>
+      <div class="wiz" data-step="0">
+        <p class="muted">${t('wiz.photo_lead')}</p>
+        <label class="photo-pick">
+          <input type="file" name="photo" accept="image/*" capture="environment" hidden>
+          <span id="photo-preview">${t('addloc.photo')}</span>
+        </label>
+        <p class="row"><button class="btn primary big" type="button" data-next disabled>${t('wiz.next')}</button></p>
+      </div>
+      <div class="wiz" data-step="1" hidden>
+        <label>${t('addloc.name')} <span class="muted">${t('optional')}</span>
+          <input name="name" maxlength="120" placeholder="${t('addloc.name_ph')}"></label>
+        <label>${t('addloc.hint')} <span class="muted">${t('optional')}</span>
+          <textarea name="description" maxlength="1000" rows="3" placeholder="${t('addloc.hint_ph')}"></textarea></label>
+        <p class="field-note">${t('privacy.hint')}</p>
+        <label class="check"><input type="checkbox" name="restricted"> ${t('addloc.restricted')}</label>
+        <p class="row"><button class="btn primary" type="button" data-next>${t('wiz.next')}</button>
+          <button class="btn" type="button" data-skip>${t('wiz.skip_name')}</button>
+          <button class="link" type="button" data-prev>${t('wiz.back')}</button></p>
+      </div>
+      <div class="wiz" data-step="2" hidden>
+        <p class="muted">${t('wiz.place_lead')}</p>
+        <div id="mini-map" class="mini-map"></div>
+        <p id="gps" class="muted small">${t('addloc.gps_wait')}</p>
+        <p class="row"><button class="btn primary big" type="submit">${t('addloc.submit')}</button>
+          <button class="link" type="button" data-prev>${t('wiz.back')}</button></p>
+      </div>
     </form>
   </section>`;
 
@@ -58,14 +71,32 @@ export default async function addLocationView(root) {
     gpsText.textContent = t('addloc.placed');
   });
 
+  // Steps: the photo (needed), name and hint (skip = no name), the place (GPS unless moved).
+  let step = 0;
+  const show = (n) => {
+    step = n;
+    root.querySelectorAll('.wiz').forEach((w) => { w.hidden = Number(w.dataset.step) !== n; });
+    root.querySelectorAll('.wiz-steps li').forEach((li) => { li.className = Number(li.dataset.s) < n ? 'done' : Number(li.dataset.s) === n ? 'on' : ''; });
+    if (n === 2) setTimeout(() => map.invalidateSize());
+    window.scrollTo(0, 0);
+  };
+  form.addEventListener('click', (e) => {
+    if (e.target.closest('[data-next]')) show(step + 1);
+    else if (e.target.closest('[data-skip]')) { form.name.value = ''; form.description.value = ''; form.restricted.checked = false; show(step + 1); }
+    else if (e.target.closest('[data-prev]')) show(step - 1);
+  });
+  show(0);
+
   form.photo.onchange = async () => {
     const file = form.photo.files[0];
     if (!file) return;
     photo = await shrinkImage(file);
     root.querySelector('#photo-preview').innerHTML = `<img src="${URL.createObjectURL(photo)}" alt="">`;
+    root.querySelector('[data-step="0"] [data-next]').disabled = false;
   };
 
   async function submit(force = false, confirmPrivate = false) {
+    if (!photo) { show(0); return toast(t('wiz.need_photo')); }
     if (!pos) return toast(t('addloc.need_pos'));
     const fields = {
       lat: pos.lat, lon: pos.lon, accuracy: pos.accuracy ?? '',
@@ -87,7 +118,7 @@ export default async function addLocationView(root) {
     } catch (e) {
       if (e.body?.error === 'private_info') {
         if (await privacyDialog(e.body.snippets)) submit(force, true);
-        else form.description.focus();
+        else { show(1); form.description.focus(); }
       } else if (e.body?.error === 'nearby_exists') {
         const d = e.body.location;
         if (confirm(t('addloc.dup', { name: d.name || d.code }))) navigate(`/l/${d.code}`);

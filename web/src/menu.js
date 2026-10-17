@@ -24,7 +24,7 @@ async function open() {
     ['🌍', 'menu.places', '/places'],
     ...(waiting ? [['📥', 'menu.queue', '/queue', null, waiting]] : []),
     ...(me ? [['🔔', 'menu.watches', '/me#watches']] : []),
-    ...(me?.trust_level >= 2 ? [['✅', 'menu.review', '/review']] : []),
+    ...(me?.trust_level >= 2 ? [['✅', 'menu.review', '/review'], ['🧩', 'menu.duplicates', '/duplicates']] : []),
     ...(canOfferInstall() ? [['📲', 'menu.install', '#install']] : []),
     ['ℹ️', 'menu.about', '/about'],
     ['✉️', 'menu.feedback', `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(t('contact.subject'))}&body=${encodeURIComponent(`${t('contact.greeting')}\n\n`)}`],

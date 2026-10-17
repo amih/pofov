@@ -254,16 +254,32 @@ export async function upsertBook(b) {
   );
 }
 
-// For books without an ISBN: reuse a row with the same title and first author.
+// For books without an ISBN: reuse a row with the same title and first author (also
+// when the two were entered in each other's fields).
 export async function findOrCreateBook(b) {
   if (b.isbn13 || b.danacode) return upsertBook(b);
   const existing = await one(
-    `SELECT * FROM books WHERE lower(title) = lower($1)
-        AND (cardinality(authors) = 0 OR $2::text IS NULL OR lower(authors[1]) = lower($2))
-      ORDER BY isbn13 IS NULL, id LIMIT 1`,
+    `SELECT * FROM books WHERE (lower(title) = lower($1)
+        AND (cardinality(authors) = 0 OR $2::text IS NULL OR lower(authors[1]) = lower($2)))
+        OR ($2::text IS NOT NULL AND lower(title) = lower($2) AND lower(authors[1]) = lower($1))
+      ORDER BY lower(title) = lower($1) DESC, isbn13 IS NULL, id LIMIT 1`,
     [b.title, b.authors?.[0] ?? null],
   );
   return existing ?? upsertBook(b);
+}
+
+// A scanned ISBN or Danacode belongs to this book: kept on it when it has none, or on
+// a new row for this edition when it has another one. A code already held by another
+// book is left there (the reader may have corrected a wrong catalogue match).
+export async function withCode(book, code) {
+  const isbn = normalizeIsbn(code), danacode = isbn ? null : normalizeDanacode(code);
+  const col = isbn ? 'isbn13' : danacode ? 'danacode' : null;
+  const value = isbn ?? danacode;
+  if (!col || book[col] === value) return book;
+  if (await one(`SELECT 1 FROM books WHERE ${col} = $1`, [value])) return book;
+  if (!book[col]) return one(`UPDATE books SET ${col} = $2 WHERE id = $1 RETURNING *`, [book.id, value]);
+  const { title, authors, publisher, year, language } = book;
+  return upsertBook({ title, authors, publisher, year, language, source: 'user', isbn13: isbn, danacode });
 }
 
 const words = (s) => new Set(normTitle(s).split(' ').filter((w) => w.length > 1));
@@ -295,7 +311,18 @@ export async function lookupTitle(title, author, context = 'scan') {
   });
 }
 
+// Books already here (some added by readers, found in no catalogue).
+async function appTitleCandidates(title) {
+  const q = normTitle(title);
+  if (q.length < 3) return [];
+  return many(`SELECT * FROM books WHERE $1 <% search ORDER BY word_similarity($1, search) DESC, isbn13 IS NULL LIMIT 10`, [q]).catch(() => []);
+}
+
 async function searchTitle(title, author) {
+  const mine = [];
+  for (const b of await appTitleCandidates(title)) mine.push({ ...b, bare: b.title, alt: null, via: 'app', book: b });
+  const here = pickBest(mine, title, author);
+  if (here) return { book: here.book, source: 'app', score: here.score };
   const candidates = [];
   for (const r of await track('local_ol', () => localTitleCandidates(title)).catch(() => [])) {
     candidates.push({ ...fromLocal(r), bare: r.title, isbn: r.isbn13, alt: r.tnorm, via: 'local_ol' });
