@@ -1,17 +1,20 @@
 import { api } from '../api.js';
 import { navigate } from '../nav.js';
-import { esc, timeAgo, toast } from '../ui.js';
+import { esc, timeAgo, toast, confirmDialog, getPosition } from '../ui.js';
 import { t } from '../i18n.js';
 import { watchDialog } from '../watch.js';
-import { pagerHtml, attachPager } from '../pager.js';
+import { pagerHtml, attachPager, loadBook } from '../pager.js';
+import { bookShots } from '../shots.js';
 import { placeBook } from '../mybooks.js';
 
 // One book at one library: large pictures (photos taken at the shelf, the front and
 // back covers found online), the back-cover text, and whether it is still there.
-export default async function bookView(root, [code, id]) {
-  root.innerHTML = `<section class="page"><p class="muted">${t('loading')}</p></section>`;
+const NEAR_M = 300; // close enough to the library to photograph a book on its shelf
+
+export default async function bookView(root, [code, id], _q, fresh = false) {
+  if (!fresh) root.innerHTML = `<section class="page"><p class="muted">${t('loading')}</p></section>`;
   let data;
-  try { data = await api(`/api/locations/${code}/books/${id}`); } catch (e) {
+  try { data = await loadBook(`/l/${code}/b/${id}`, { fresh }); } catch (e) {
     root.innerHTML = `<section class="page"><h1>${t(e.status === 404 ? 'notfound.title' : 'offline')}</h1><p><a href="/l/${code}">${t('back.library')}</a></p></section>`;
     return;
   }
@@ -19,7 +22,19 @@ export default async function bookView(root, [code, id]) {
   // "Tell me when it shows up" only when it is not on the shelf now.
   const present = here?.present;
   return renderBook(root, {
-    b, photos, again: () => bookView(root, [code, id]),
+    b, photos, again: () => bookView(root, [code, id], null, true),
+    // Back cover missing: whoever stands at the library can photograph it.
+    addBack: async () => {
+      const p = await getPosition({ timeout: 8000 }).catch(() => null);
+      if (!p || distanceM(p, l) > NEAR_M) return null;
+      return async ({ back }) => {
+        const fd = new FormData();
+        fd.append('back', back, 'back.jpg');
+        fd.append('lat', p.lat); fd.append('lon', p.lon);
+        const r = await api(`/api/locations/${code}/books/${id}/photos`, { method: 'POST', form: fd });
+        toast(t(r.sighting.status === 'approved' ? 'shots.thanks' : 'loc.thanks_review'));
+      };
+    },
     back: `<a href="/l/${code}">${t('back.to', { name: esc(l.name || t('free_library')) })}</a>`,
     status: here ? `<p class="${present ? 'ok' : 'muted'}">${present ? t('book.here', { when: timeAgo(here.at) }) : t(here.kind === 'gone' ? 'loc.gone_when' : 'loc.taken_when', { when: timeAgo(here.at) })}</p>` : '',
     actions: `${waiting?.others ? `<p class="waiting">👥 ${t('watch.waiting', { n: waiting.others, mine: waiting.mine })}</p>` : ''}
@@ -29,16 +44,22 @@ export default async function bookView(root, [code, id]) {
 }
 
 // One of the reader's own books (My books).
-export async function myBookView(root, [id]) {
-  root.innerHTML = `<section class="page"><p class="muted">${t('loading')}</p></section>`;
+export async function myBookView(root, [id], _q, fresh = false) {
+  if (!fresh) root.innerHTML = `<section class="page"><p class="muted">${t('loading')}</p></section>`;
   let data;
-  try { data = await api(`/api/my-books/${id}`); } catch (e) {
+  try { data = await loadBook(`/books/${id}`, { fresh }); } catch (e) {
     root.innerHTML = `<section class="page"><h1>${t(e.status === 404 ? 'notfound.title' : 'offline')}</h1><p><a href="/books">${t('mybooks.back')}</a></p></section>`;
     return;
   }
   const { item, book: b, photos } = data;
   return renderBook(root, {
-    b, photos, again: () => myBookView(root, [id]),
+    b, photos, again: () => myBookView(root, [id], null, true),
+    addBack: async () => async ({ back }) => {
+      const fd = new FormData();
+      fd.append('back', back, 'back.jpg');
+      await api(`/api/my-books/${item.id}/photos`, { method: 'POST', form: fd });
+      toast(t('shots.thanks'));
+    },
     back: `<a href="/books">${t('mybooks.back')}</a>`,
     status: item.placed_at ? `<p class="ok">📍 <a href="/l/${item.code}">${esc(item.location_name || t('free_library'))}</a> · ${timeAgo(item.placed_at)}</p>`
       : `<p class="muted">${t('mybooks.home')}</p>`,
@@ -49,6 +70,7 @@ export async function myBookView(root, [id]) {
       if (p) p.onclick = async () => { if (await placeBook({ id: item.id, title: b.title })) myBookView(root, [id]); };
       const r = el.querySelector('#remove');
       if (r) r.onclick = async () => {
+        if (!await confirmDialog(t('mybooks.remove_confirm', { title: esc(b.title) }), t('mybooks.remove'))) return;
         await api(`/api/my-books/${item.id}`, { method: 'DELETE' }).catch((err) => toast(err.message));
         navigate('/books', { replace: true });
       };
@@ -56,7 +78,14 @@ export async function myBookView(root, [id]) {
   });
 }
 
-function renderBook(root, { b, photos, again, back, status, actions, wire }) {
+const distanceM = (a, b) => {
+  const R = 6371000, rad = Math.PI / 180;
+  const x = (b.lon - a.lon) * rad * Math.cos(((a.lat + b.lat) / 2) * rad), y = (b.lat - a.lat) * rad;
+  return Math.hypot(x, y) * R;
+};
+
+function renderBook(root, { b, photos, again, back, status, actions, wire, addBack }) {
+  root._bookCleanup?.(); // the page re-renders when the details arrive
   // Covers and the back-cover text are still being looked up: show this, then look again.
   const path = location.pathname;
   let timer = null;
@@ -92,6 +121,9 @@ function renderBook(root, { b, photos, again, back, status, actions, wire }) {
     ${b.description ? `<h2>${t('book.blurb')}</h2><p class="desc blurb" dir="auto">${esc(b.description)}</p>`
       : b.details_pending ? `<p class="progress-line small"><span class="spinner"></span> ${t('book.looking')}</p>` : `<p class="muted small">${t('book.no_blurb')}</p>`}
     ${actions}
+    <div class="add-back" hidden><p class="note">${t('book.no_back')}</p>
+      <p><button class="btn primary" data-add-back>📷 ${t('shots.back')}</button></p></div>
+    <div class="shots" id="shots" hidden></div>
     ${b.isbn13 ? `<p class="muted small" dir="ltr">ISBN ${esc(b.isbn13)}</p>` : ''}
     ${b.details_source ? `<p class="muted small">${t('book.source', { src: esc(b.details_source) })}</p>` : ''}
   </section>`;
@@ -101,8 +133,25 @@ function renderBook(root, { b, photos, again, back, status, actions, wire }) {
     const btn = e.target.closest('[data-i]');
     if (btn) viewer(pics, Number(btn.dataset.i));
   });
+  // No back cover anywhere: the reader holding the book can add it.
+  let shots = null;
+  if (!b.back_url && !latest('back') && addBack && !b.details_pending) {
+    addBack().then((save) => {
+      if (!save || location.pathname !== path) return;
+      const box = root.querySelector('.add-back');
+      box.hidden = false;
+      shots = bookShots({ on: root, panel: root.querySelector('#shots'), onBook: async ({ back }) => {
+        await save({ back });
+        again();
+        return '';
+      } });
+      box.querySelector('[data-add-back]').onclick = () => { box.hidden = true; shots.start({ backOnly: true }); };
+    });
+  }
   const unpage = attachPager(root);
-  return () => { clearTimeout(timer); unpage(); };
+  const cleanup = () => { clearTimeout(timer); unpage(); shots?.stop(); root._bookCleanup = null; };
+  root._bookCleanup = cleanup;
+  return () => root._bookCleanup?.(); // whichever render is current when leaving
 }
 
 // Full-screen picture, pinch to zoom, arrows/swipe between pictures.

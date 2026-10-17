@@ -47,7 +47,7 @@ const routes = [
   [/^\/(places|c\/[a-z]{2}|p\/\d+(-[a-z0-9-]*)?)$/i, pageView],
 ];
 
-const main = document.getElementById('view');
+let main = document.getElementById('view');
 let cleanup = null;
 
 async function render() {
@@ -63,7 +63,10 @@ async function render() {
     history.replaceState(null, '', '/me?welcome=1');
     return render();
   }
-  main.innerHTML = '';
+  // A fresh element per screen: listeners a screen added to it go with it.
+  const fresh = main.cloneNode(false);
+  main.replaceWith(fresh);
+  main = fresh;
   window.scrollTo(0, 0);
   if (!view) {
     main.innerHTML = `<section class="page"><h1>${t('notfound.title')}</h1><p><a href="/">${t('back.map')}</a></p></section>`;

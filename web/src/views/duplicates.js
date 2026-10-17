@@ -1,6 +1,6 @@
 import { api, getMe } from '../api.js';
 import { navigate } from '../nav.js';
-import { esc, toast } from '../ui.js';
+import { esc, toast, confirmDialog } from '../ui.js';
 import { t } from '../i18n.js';
 
 // Books that look like the same book entered twice: keep the better record (the
@@ -41,7 +41,10 @@ export default async function duplicatesView(root) {
   root.addEventListener('click', async (e) => {
     const k = e.target.closest('[data-keep]'), sw = e.target.closest('[data-swap]'), diff = e.target.closest('[data-a]');
     let body, url = '/api/duplicates';
-    if (k) body = { keep: Number(k.dataset.keep), drop: Number(k.dataset.drop) };
+    if (k) {
+      if (!await confirmDialog(t('dup.confirm_keep'), t('dup.keep'))) return;
+      body = { keep: Number(k.dataset.keep), drop: Number(k.dataset.drop) };
+    }
     else if (diff) body = { a: Number(diff.dataset.a), b: Number(diff.dataset.b), different: true };
     else if (sw) { url = `/api/books/${sw.dataset.swap}/swap`; body = {}; } else return;
     try {

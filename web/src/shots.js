@@ -21,16 +21,17 @@ export function bookShots({ on, panel, onBook, onStart, onEnd }) {
     panel.querySelector('.shot-say').innerHTML = side === 'front'
       ? `<b>${t('shots.front_now')}</b><br><span class="muted small">${t('shots.front_how')}</span>`
       : `<b>${t('shots.now_back')}</b><br><span class="muted small">${t('shots.back_why')}</span>`;
-    panel.querySelector('[data-shots="skip"]').hidden = side !== 'back';
+    panel.querySelector('[data-shots="skip"]').hidden = side !== 'back' || session.backOnly;
   };
   const thumb = (blob) => `<img class="shot-thumb" src="${esc(URL.createObjectURL(blob))}" alt="">`;
 
-  async function start({ isbn = null, intro = null, single = false, onBook: own = null } = {}) {
+  async function start({ isbn = null, intro = null, single = false, backOnly = false, onBook: own = null } = {}) {
     stopCamera();
     preset = isbn;
-    session = { intro, single, onBook: own };
+    session = { intro, single: single || backOnly, backOnly, onBook: own };
     refresh = say;
-    side = 'front';
+    side = backOnly ? 'back' : 'front';
+    prev = null; steady = 0; moved = true; best = 0;
     front = null;
     panel.hidden = false;
     panel.innerHTML = `${intro ? `<p class="shot-intro">${intro}</p>` : ''}
@@ -101,22 +102,22 @@ export function bookShots({ on, panel, onBook, onStart, onEnd }) {
   }
 
   function took(blob) {
-    if (side === 'front') { front = blob; side = 'back'; } else { save(front, blob); front = null; side = 'front'; }
-    if (side === 'front' && session.single) return stop();
+    if (side === 'front') { front = blob; side = 'back'; } else { save(front, blob); front = null; side = session.backOnly ? 'back' : 'front'; }
+    if ((side === 'front' || session.backOnly) && session.single) return stop();
     refresh();
   }
 
   // In the background, so the next book can be photographed meanwhile.
   async function save(f, b) {
     const handle = session.onBook ?? onBook;
-    const isbn = preset || (b && await scanImage(b).catch(() => null)) || await scanImage(f).catch(() => null);
+    const isbn = preset || (b && await scanImage(b).catch(() => null)) || (f && await scanImage(f).catch(() => null));
     preset = null;
     const li = document.createElement('li');
-    li.innerHTML = `${thumb(f)}${b ? thumb(b) : ''}<span><span class="spinner"></span></span>`;
+    li.innerHTML = `${f ? thumb(f) : ''}${b ? thumb(b) : ''}<span><span class="spinner"></span></span>`;
     panel.querySelector('.shot-done')?.prepend(li);
     let line;
     try {
-      line = await handle({ front: await shrinkImage(f, 2400), back: b ? await shrinkImage(b, 2400) : null, isbn });
+      line = await handle({ front: f && await shrinkImage(f, 2400), back: b ? await shrinkImage(b, 2400) : null, isbn });
     } catch (err) { line = `⚠️ ${esc(err.message)}`; }
     li.lastElementChild.innerHTML = line;
   }

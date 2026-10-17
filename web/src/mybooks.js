@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { esc, dialog, getPosition, toast } from './ui.js';
+import { esc, dialog, getPosition, toast, confirmDialog } from './ui.js';
 import { t } from './i18n.js';
 
 // "I left this book in a library": pick the library (nearest first, then the ones the
@@ -24,6 +24,7 @@ export async function placeBook(item, code = null) {
     });
     if (!code) return null;
   }
+  else if (!await confirmDialog(t('mybooks.place_confirm', { title: esc(item.title) }), t('mybooks.report'))) return null;
   if (!pos) pos = await getPosition({ timeout: 5000 }).catch(() => null);
   try {
     const r = await api(`/api/my-books/${item.id}/place`, { method: 'POST', json: { code, lat: pos?.lat, lon: pos?.lon } });

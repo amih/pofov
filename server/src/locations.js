@@ -260,7 +260,7 @@ export default async function locationRoutes(app) {
     );
     const seen = new Set();
     return {
-      location: { code: loc.code, name: loc.name },
+      location: { code: loc.code, name: loc.name, lat: loc.lat, lon: loc.lon },
       book: {
         id: book.id, isbn13: book.isbn13, title: book.title, authors: book.authors, year: book.year, publisher: book.publisher,
         cover_url: book.cover_url, front_url: book.front_url, back_url: book.back_url,
@@ -270,6 +270,25 @@ export default async function locationRoutes(app) {
       here: latest ? { present: ['seen', 'added'].includes(latest.kind), kind: latest.kind, at: latest.created_at } : null,
       waiting: (await waitingFor([book.id], req.user?.id)).get(book.id) ?? null,
     };
+  });
+
+  // A cover photographed at the shelf later (the book was there without one): reported
+  // as seen, with the picture.
+  app.post('/api/locations/:code/books/:id/photos', {
+    preHandler: requireUser(),
+    config: { rateLimit: { max: 120, timeWindow: '1 hour' } },
+  }, async (req, reply) => {
+    const loc = await locationByCode(req.params.code);
+    if (!visibleTo(loc, req.user) || loc.status === 'removed') return reply.code(404).send({ error: 'not_found' });
+    const book = await one('SELECT * FROM books WHERE id = $1', [Number(req.params.id)]);
+    if (!book) return reply.code(404).send({ error: 'not_found' });
+    const { fields, files } = await readForm(req);
+    if (!files.photo && !files.back) return reply.code(400).send({ error: 'no_media' });
+    const photo = files.photo && await savePhoto(files.photo, { userId: req.user.id, kind: 'cover' });
+    const back = files.back && await savePhoto(files.back, { userId: req.user.id, kind: 'back' });
+    const distance = await distanceTo(loc.id, parseLatLon(fields.lat, fields.lon));
+    const s = await recordSighting({ user: req.user, loc, book, kind: 'seen', distance, photoId: photo?.id, backPhotoId: back?.id });
+    return { sighting: s };
   });
 
   app.get('/api/books/lookup', async (req, reply) => {

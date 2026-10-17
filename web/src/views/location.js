@@ -1,5 +1,5 @@
 import { api, getMe } from '../api.js';
-import { esc, getPosition, timeAgo, toast, avatarHtml, noStringsNote } from '../ui.js';
+import { esc, getPosition, timeAgo, toast, avatarHtml, noStringsNote, confirmDialog } from '../ui.js';
 import { t, lang } from '../i18n.js';
 import { rememberList } from '../pager.js';
 
@@ -77,6 +77,7 @@ export default async function locationView(root, [code]) {
 
   root.querySelector('#check').onclick = async (e) => {
     if (needLogin()) return;
+    if (!await confirmDialog(t('loc.confirm_check'), e.target.textContent)) return;
     e.target.disabled = true;
     try {
       const p = await getPosition();
@@ -94,6 +95,8 @@ export default async function locationView(root, [code]) {
     const btn = e.target.closest('button[data-kind]');
     if (!btn || needLogin()) return;
     const li = btn.closest('li');
+    const title = books.find((b) => String(b.id) === li.dataset.id)?.title ?? '';
+    if (!await confirmDialog(t(`loc.confirm_${btn.dataset.kind}`, { title: esc(title) }), btn.textContent)) return;
     const form = new FormData();
     form.append('book_id', li.dataset.id);
     form.append('kind', btn.dataset.kind);

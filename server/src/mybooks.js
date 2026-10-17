@@ -54,7 +54,7 @@ export default async function myBookRoutes(app) {
   // One of the reader's books, for its own page: large pictures and the back-cover text.
   app.get('/api/my-books/:id', { preHandler: requireUser() }, async (req, reply) => {
     const m = await one(
-      `SELECT m.*, p.path AS front_path, pb.path AS back_path, l.code, l.name AS location_name
+      `SELECT m.*, p.path AS front_path, p.created_at AS front_at, pb.path AS back_path, pb.created_at AS back_at, l.code, l.name AS location_name
          FROM my_books m LEFT JOIN photos p ON p.id = m.photo_id LEFT JOIN photos pb ON pb.id = m.back_photo_id
          LEFT JOIN locations l ON l.id = m.location_id WHERE m.id = $1 AND m.user_id = $2`,
       [Number(req.params.id), req.user.id],
@@ -70,8 +70,8 @@ export default async function myBookRoutes(app) {
         cover_url: book.cover_url, front_url: book.front_url, back_url: book.back_url,
         description: book.description, details_source: book.details_source, details_pending: !ready,
       },
-      photos: [m.front_path && { url: `/uploads/${m.front_path}`, kind: 'cover', at: m.created_at },
-        m.back_path && { url: `/uploads/${m.back_path}`, kind: 'back', at: m.created_at }].filter(Boolean),
+      photos: [m.front_path && { url: `/uploads/${m.front_path}`, kind: 'cover', at: m.front_at },
+        m.back_path && { url: `/uploads/${m.back_path}`, kind: 'back', at: m.back_at }].filter(Boolean),
     };
   });
 

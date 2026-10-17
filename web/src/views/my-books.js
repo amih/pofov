@@ -2,7 +2,7 @@ import { api, getMe } from '../api.js';
 import { enqueue } from '../queue.js';
 import { navigate } from '../nav.js';
 import { startScanner } from '../scanner.js';
-import { esc, shrinkImage, timeAgo, toast } from '../ui.js';
+import { esc, shrinkImage, timeAgo, toast, confirmDialog } from '../ui.js';
 import { t } from '../i18n.js';
 import { placeBook } from '../mybooks.js';
 import { bookShots, sendCovers } from '../shots.js';
@@ -74,6 +74,8 @@ export default async function myBooksView(root) {
       const item = homeRows.find((r) => r.id === Number(p.dataset.place));
       if (item && await placeBook(item)) showLists();
     } else if (del) {
+      const item = homeRows.find((r) => r.id === Number(del.dataset.del));
+      if (!await confirmDialog(t('mybooks.remove_confirm', { title: esc(item?.title ?? '') }), t('mybooks.remove'))) return;
       await api(`/api/my-books/${del.dataset.del}`, { method: 'DELETE' }).catch((err) => toast(err.message));
       showLists();
     }

@@ -33,6 +33,11 @@ export function dialog({ title, html, ok, cancel, read }) {
   });
 }
 
+// "Are you sure?" before an update: resolves true on the OK button.
+export function confirmDialog(text, ok) {
+  return dialog({ html: `<p>${text}</p>`, ok: ok ?? t('confirm.yes'), cancel: t('cancel') });
+}
+
 // Shown when a library name/hint looks like it holds a door code, phone number etc.
 // Resolves true when the user insists it is fine (a reviewer will still check).
 export function privacyDialog(snippets = []) {
